@@ -4,8 +4,8 @@ import { Card } from './ui/Card';
 import { Badge } from './ui/Badge';
 
 interface FileUploadZoneProps {
-    uploadMode: string;
-    setUploadMode: (mode: string) => void;
+    uploadMode: 'single' | 'multiple';
+    setUploadMode: (mode: 'single' | 'multiple') => void;
     handleFileDrop: (e: React.DragEvent<HTMLDivElement> | React.ChangeEvent<HTMLInputElement>) => void;
 }
 
