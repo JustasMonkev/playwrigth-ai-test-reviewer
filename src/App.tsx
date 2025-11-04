@@ -7,7 +7,6 @@ import {Button} from './components/ui/Button';
 import {FileUploadZone} from './components/FileUploadZone';
 import {ResultsSummary} from './components/ResultsSummary';
 import {LoadingSpinner} from './components/LoadingSpinner';
-import {getHistoryEntry} from './utils/historyStorage';
 
 // Lazy load heavy components for better code splitting (React 19 best practice)
 const TestResultItem = lazy(() => import('./components/TestResultItem').then(m => ({ default: m.TestResultItem })));
@@ -39,7 +38,6 @@ const TestResultsViewer = () => {
         setCurrentFilter,
         filteredResults,
         addToHistory,
-        loadFromHistory,
         deleteEntry,
         clearAllHistory,
     } = useTestHistory(currentResults);
@@ -59,28 +57,33 @@ const TestResultsViewer = () => {
 
     // Load history entry and display it (React 19 best practice: useCallback)
     const handleLoadHistory = useCallback((id: string) => {
-        const entry = getHistoryEntry(id);
-        if (entry) {
-            setCurrentHistoryId(id);
-            loadFromHistory(id);
-            // We'll use the entry's report directly - update this in the display logic
-        }
-    }, [loadFromHistory]);
+        setCurrentHistoryId(id);
+    }, []);
 
     // Get the active results to display (current or from history)
+    // Uses history array instead of localStorage for better performance
     const displayResults = useMemo(() => {
         if (currentHistoryId) {
-            const entry = getHistoryEntry(currentHistoryId);
+            const entry = history.find(h => h.id === currentHistoryId);
             return entry?.report || null;
         }
         return filteredResults;
-    }, [currentHistoryId, filteredResults]);
+    }, [currentHistoryId, filteredResults, history]);
 
     // Handle reset with history clearing
     const handleReset = useCallback(() => {
         resetResults();
         setCurrentHistoryId(null);
     }, [resetResults]);
+
+    // Handle deletion of history entry with cleanup
+    const handleDeleteEntry = useCallback((id: string) => {
+        // Clear currentHistoryId if we're deleting the currently viewed entry
+        if (currentHistoryId === id) {
+            setCurrentHistoryId(null);
+        }
+        deleteEntry(id);
+    }, [currentHistoryId, deleteEntry]);
 
     // Toggle history panel
     const toggleHistory = useCallback(() => {
@@ -195,7 +198,7 @@ const TestResultsViewer = () => {
                                     >
                                         <AlertTitle>No Results Found</AlertTitle>
                                         <AlertDescription>
-                                            No {currentFilter !== 'all' ? currentFilter : ''} tests found with the current filter.
+                                            No {currentFilter === 'all' ? '' : `${currentFilter} `}tests found with the current filter.
                                         </AlertDescription>
                                     </Alert>
                                 )}
@@ -211,7 +214,7 @@ const TestResultsViewer = () => {
                                     <HistoryPanel
                                         history={history}
                                         onLoadHistory={handleLoadHistory}
-                                        onDeleteEntry={deleteEntry}
+                                        onDeleteEntry={handleDeleteEntry}
                                         onClearAll={clearAllHistory}
                                         currentHistoryId={currentHistoryId}
                                     />

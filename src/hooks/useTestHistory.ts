@@ -17,7 +17,6 @@ export interface UseTestHistoryReturn {
   setCurrentFilter: (filter: FilterStatus) => void;
   filteredResults: CombinedReport | null;
   addToHistory: (report: CombinedReport, uploadMode: 'single' | 'multiple') => void;
-  loadFromHistory: (id: string) => void;
   deleteEntry: (id: string) => void;
   clearAllHistory: () => void;
   refreshHistory: () => void;
@@ -30,7 +29,6 @@ export interface UseTestHistoryReturn {
 export function useTestHistory(currentResults: CombinedReport | null): UseTestHistoryReturn {
   const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory());
   const [currentFilter, setCurrentFilter] = useState<FilterStatus>('all');
-  const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
 
   /**
    * Filter current results based on selected filter
@@ -74,22 +72,12 @@ export function useTestHistory(currentResults: CombinedReport | null): UseTestHi
   }, []);
 
   /**
-   * Load a specific history entry
-   */
-  const loadFromHistory = useCallback((id: string) => {
-    setSelectedHistoryId(id);
-  }, []);
-
-  /**
    * Delete a history entry
    */
   const deleteEntry = useCallback((id: string) => {
     deleteHistoryEntry(id);
     setHistory(prev => prev.filter(entry => entry.id !== id));
-    if (selectedHistoryId === id) {
-      setSelectedHistoryId(null);
-    }
-  }, [selectedHistoryId]);
+  }, []);
 
   /**
    * Clear all history
@@ -97,7 +85,6 @@ export function useTestHistory(currentResults: CombinedReport | null): UseTestHi
   const clearAllHistory = useCallback(() => {
     clearHistory();
     setHistory([]);
-    setSelectedHistoryId(null);
   }, []);
 
   // Sync with localStorage changes from other tabs/windows
@@ -118,7 +105,6 @@ export function useTestHistory(currentResults: CombinedReport | null): UseTestHi
     setCurrentFilter,
     filteredResults,
     addToHistory,
-    loadFromHistory,
     deleteEntry,
     clearAllHistory,
     refreshHistory,

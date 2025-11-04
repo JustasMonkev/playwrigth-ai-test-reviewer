@@ -16,11 +16,14 @@ export const useFileProcessing = () => {
         let failed = 0;
 
         results.comparison.forEach(detail => {
-            if (detail.details.failure) failed++;
-            if (detail.details.passedTest) passed++;
+            if (detail.details.failure) {
+                failed++;
+            } else if (detail.details.passedTest) {
+                passed++;
+            }
         });
 
-        return { total: passed + failed, passed, failed };
+        return { total: results.comparison.length, passed, failed };
     }, [results]);
 
     const handleFileDrop = useCallback(async (e: React.DragEvent<HTMLDivElement> | React.ChangeEvent<HTMLInputElement>) => {

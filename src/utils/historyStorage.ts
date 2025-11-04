@@ -106,14 +106,14 @@ export function calculateMetadata(report: CombinedReport): HistoryEntry['metadat
   let passedTests = 0;
 
   report.comparison.forEach(detail => {
+    totalTests++; // Each comparison detail is one test
+
     if (detail.details.failure) {
-      totalTests++;
       failedTests++;
-    }
-    if (detail.details.passedTest) {
-      totalTests++;
+    } else if (detail.details.passedTest) {
       passedTests++;
     }
+
     if (detail.other && detail.other.length > 0) {
       totalTests += detail.other.length;
     }

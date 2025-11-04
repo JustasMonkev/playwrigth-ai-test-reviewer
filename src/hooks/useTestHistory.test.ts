@@ -164,18 +164,6 @@ describe('useTestHistory', () => {
     });
   });
 
-  describe('loadFromHistory', () => {
-    it('should call loadFromHistory without error', () => {
-      const { result } = renderHook(() => useTestHistory(null));
-
-      expect(() => {
-        act(() => {
-          result.current.loadFromHistory('some-id');
-        });
-      }).not.toThrow();
-    });
-  });
-
   describe('refreshHistory', () => {
     it('should refresh history from localStorage', () => {
       const { result } = renderHook(() => useTestHistory(null));
