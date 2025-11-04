@@ -10,6 +10,27 @@ import {
 } from './historyStorage';
 import type { CombinedReport } from '../../utils/types';
 
+/**
+ * Test Suite: History Storage Utilities
+ *
+ * Purpose:
+ * Tests localStorage-based persistence for test result history with a 50-item limit.
+ * History entries store complete test reports with metadata (counts, timestamps, upload mode).
+ *
+ * What This Tests:
+ * - Loading/saving history entries to/from localStorage
+ * - CRUD operations (Create, Read, Update, Delete)
+ * - Error handling (corrupted data, quota exceeded, invalid format)
+ * - Metadata calculation (counting failed/passed tests correctly)
+ * - History size limits (max 50 entries)
+ *
+ * Key Business Logic:
+ * 1. Each history entry = { id, timestamp, report, uploadMode, metadata }
+ * 2. Metadata counts tests correctly (no double-counting on status changes)
+ * 3. Most recent entries first (LIFO stack behavior)
+ * 4. Automatic cleanup when exceeding 50 entries
+ * 5. Graceful degradation on storage errors
+ */
 describe('historyStorage', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -218,6 +239,20 @@ describe('historyStorage', () => {
   });
 
   describe('calculateMetadata', () => {
+    /**
+     * CRITICAL: Test Count Calculation Logic
+     *
+     * The key insight: comparison.length = number of test comparisons
+     * Each ComparisonDetail represents ONE test, which can have:
+     * - details.failure (test failed in this run)
+     * - details.passedTest (test passed in this run)
+     * - Both (test changed status between two file comparison)
+     *
+     * FIXED BUG: Previously counted both failure and passedTest separately,
+     * causing double-counting. Now uses if/else if to count each test once.
+     *
+     * Total should ALWAYS equal comparison.length (not passed + failed)
+     */
     it('should calculate correct metadata for a report with failures', () => {
       const report: CombinedReport = {
         processedAt: '2024-01-01',
@@ -238,6 +273,7 @@ describe('historyStorage', () => {
       };
 
       const metadata = calculateMetadata(report);
+      // 2 comparisons = 2 total tests, both failed
       expect(metadata).toEqual({
         totalTests: 2,
         failedTests: 2,
@@ -273,6 +309,8 @@ describe('historyStorage', () => {
     });
 
     it('should calculate correct metadata for mixed results', () => {
+      // Common scenario: some tests pass, some fail
+      // Each comparison detail is ONE test, categorized by if/else if
       const report: CombinedReport = {
         processedAt: '2024-01-01',
         comparison: [
@@ -292,6 +330,7 @@ describe('historyStorage', () => {
       };
 
       const metadata = calculateMetadata(report);
+      // 2 comparisons = 2 total (1 failed, 1 passed)
       expect(metadata).toEqual({
         totalTests: 2,
         failedTests: 1,
@@ -300,6 +339,11 @@ describe('historyStorage', () => {
     });
 
     it('should include other tests in total count', () => {
+      /**
+       * The "other" array contains additional test results for the same callId
+       * This happens when a test has multiple executions/retries
+       * These add to totalTests but not to passed/failed counts
+       */
       const report: CombinedReport = {
         processedAt: '2024-01-01',
         comparison: [
