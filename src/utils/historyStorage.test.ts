@@ -120,12 +120,10 @@ describe('historyStorage', () => {
 
     it('should handle quota exceeded error gracefully', () => {
       // Mock localStorage.setItem to throw QuotaExceededError
-      const originalSetItem = localStorage.setItem;
       const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
 
       setItemSpy.mockImplementationOnce(() => {
         const error = new DOMException('QuotaExceededError');
-        error.name = 'QuotaExceededError';
         throw error;
       });
 
