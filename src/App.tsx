@@ -1,16 +1,18 @@
 import {AlertCircle, History as HistoryIcon} from 'lucide-react';
-import {useCallback, useState, useMemo, useEffect, useRef} from 'react';
+import {useCallback, useState, useMemo, useEffect, useRef, lazy, Suspense} from 'react';
 import {useFileProcessing} from './hooks/useFileProcessing';
 import {useTestHistory} from './hooks/useTestHistory';
 import {Alert, AlertTitle, AlertDescription} from './components/ui/Alert';
 import {Button} from './components/ui/Button';
 import {FileUploadZone} from './components/FileUploadZone';
-import {TestResultItem} from './components/TestResultItem';
 import {ResultsSummary} from './components/ResultsSummary';
 import {LoadingSpinner} from './components/LoadingSpinner';
-import {FilterControls} from './components/FilterControls';
-import {HistoryPanel} from './components/HistoryPanel';
 import {getHistoryEntry} from './utils/historyStorage';
+
+// Lazy load heavy components for better code splitting (React 19 best practice)
+const TestResultItem = lazy(() => import('./components/TestResultItem').then(m => ({ default: m.TestResultItem })));
+const FilterControls = lazy(() => import('./components/FilterControls').then(m => ({ default: m.FilterControls })));
+const HistoryPanel = lazy(() => import('./components/HistoryPanel').then(m => ({ default: m.HistoryPanel })));
 
 const TestResultsViewer = () => {
     const [showHistory, setShowHistory] = useState(false);
@@ -157,29 +159,33 @@ const TestResultsViewer = () => {
 
                                 {/* Filter Controls */}
                                 {displayResults.comparison.length > 0 && (
-                                    <FilterControls
-                                        currentFilter={currentFilter}
-                                        onFilterChange={setCurrentFilter}
-                                        totalCount={resultCounts.total}
-                                        passedCount={resultCounts.passed}
-                                        failedCount={resultCounts.failed}
-                                    />
+                                    <Suspense fallback={<div className="h-20 flex items-center justify-center"><LoadingSpinner /></div>}>
+                                        <FilterControls
+                                            currentFilter={currentFilter}
+                                            onFilterChange={setCurrentFilter}
+                                            totalCount={resultCounts.total}
+                                            passedCount={resultCounts.passed}
+                                            failedCount={resultCounts.failed}
+                                        />
+                                    </Suspense>
                                 )}
 
                                 {/* Test Results */}
                                 {displayResults.comparison.length > 0 && (
-                                    <div className="space-y-6">
-                                        {displayResults.comparison.map((result, index) => (
-                                            <div key={`${result.callId}-${index}`}
-                                                 className="transform transition-all duration-300 hover:scale-[1.01]">
-                                                <TestResultItem
-                                                    result={result}
-                                                    index={index}
-                                                    expandedResult={expandedResult}
-                                                />
-                                            </div>
-                                        ))}
-                                    </div>
+                                    <Suspense fallback={<div className="flex justify-center py-10"><LoadingSpinner /></div>}>
+                                        <div className="space-y-6">
+                                            {displayResults.comparison.map((result, index) => (
+                                                <div key={`${result.callId}-${index}`}
+                                                     className="transform transition-all duration-300 hover:scale-[1.01]">
+                                                    <TestResultItem
+                                                        result={result}
+                                                        index={index}
+                                                        expandedResult={expandedResult}
+                                                    />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </Suspense>
                                 )}
 
                                 {displayResults.comparison.length === 0 && (
@@ -201,13 +207,15 @@ const TestResultsViewer = () => {
                     {showHistory && (
                         <div className="lg:col-span-1">
                             <div className="sticky top-6">
-                                <HistoryPanel
-                                    history={history}
-                                    onLoadHistory={handleLoadHistory}
-                                    onDeleteEntry={deleteEntry}
-                                    onClearAll={clearAllHistory}
-                                    currentHistoryId={currentHistoryId}
-                                />
+                                <Suspense fallback={<div className="h-40 flex items-center justify-center"><LoadingSpinner /></div>}>
+                                    <HistoryPanel
+                                        history={history}
+                                        onLoadHistory={handleLoadHistory}
+                                        onDeleteEntry={deleteEntry}
+                                        onClearAll={clearAllHistory}
+                                        currentHistoryId={currentHistoryId}
+                                    />
+                                </Suspense>
                             </div>
                         </div>
                     )}
