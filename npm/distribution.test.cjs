@@ -111,7 +111,7 @@ test('real npm tarballs preserve the native CLI contract', { timeout: 120000 }, 
       assert.equal(manifest.dependencies, undefined);
     }
     assert.deepEqual(mainPack.files.map(file => file.path).sort(), ['LICENSE', 'README.md', 'package.json', 'pw-review.cjs']);
-    assert.deepEqual(nativePack.files.map(file => file.path).sort(), ['LICENSE', 'bin/pw-review', 'package.json']);
+    assert.deepEqual(nativePack.files.map(file => file.path).sort(), ['LICENSE', 'README.md', 'bin/pw-review', 'package.json']);
     assert.equal(nativePack.files.find(file => file.path === 'bin/pw-review').mode & 0o111, 0o111);
   });
 
@@ -122,6 +122,13 @@ test('real npm tarballs preserve the native CLI contract', { timeout: 120000 }, 
   const nativeInstalled = path.join(consumer, 'node_modules', platform.package);
   const cli = path.join(consumer, 'node_modules/.bin/pw-review');
   const invoke = args => run(cli, args, { cwd: consumer, env });
+
+  await t.test('native package ships installation guidance after a real tarball install', () => {
+    const readme = fs.readFileSync(path.join(nativeInstalled, 'README.md'), 'utf8');
+    assert.match(readme, /prebuilt Rust/);
+    assert.match(readme, /npm install --global playwright-ai-test-reviewer/);
+    assert.match(readme, /pw-review --help/);
+  });
 
   await t.test('offline install and npx run the actual native binary', () => {
     assert.equal(success(invoke(['--version'])), success(run(native, ['--version'])));
