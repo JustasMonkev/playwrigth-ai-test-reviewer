@@ -1,123 +1,89 @@
 # Playwright AI Test Reviewer
 
-A modern React application that analyzes Playwright test trace files and provides AI-powered insights into test failures. Upload your Playwright trace ZIP files to get detailed analysis, visual comparisons, and actionable recommendations for fixing failed tests.
+`pw-review` turns Playwright traces into small, deterministic evidence reports for coding agents. Written in Rust; local analysis needs no browser, Node runtime, API key, or model call. The existing [web viewer](docs/legacy-web.md) remains available separately.
 
-## Features
+## Install
 
-- 📁 **Single File Analysis**: Upload one ZIP file for individual test analysis
-- 🔍 **Two-File Comparison**: Compare two trace files to identify differences
-- 🤖 **AI-Powered Analysis**: Get intelligent insights into test failures using Google's Gemini AI
-- 📸 **Screenshot Comparison**: Visual side-by-side comparison of passed vs failed test screenshots
-- 🔧 **Raw Data Access**: View and copy detailed t race data for debugging
-- 🎨 **Modern UI**: Clean, responsive interface built with React and Tailwind CSS
+Install the toolchain in `rust-toolchain.toml`, then:
 
-## Prerequisites
-
-- Node.js (version 16 or higher)
-- npm or yarn
-- Google Gemini API key (for AI analysis features)
-
-## Installation
-
-1. Clone the repository:
-```bash
-cd playwrigth-ai-test-reviewer
+```sh
+cargo install --locked --path .
+pw-review --help
 ```
 
-2. Install dependencies:
-```bash
-npm install
+## Agent workflow
+
+```sh
+pw-review analyze test-results/example/trace.zip
+pw-review compare baseline.zip failed.zip
+pw-review analyze trace.zip --prompt --max-output-bytes 12000
+pw-review analyze trace.zip --fail-on-error
 ```
 
-3. Set up environment variables:
-```bash
-cp .env.example .env
+JSON is compact by default; use `--pretty` for a human-readable report. `--prompt` adds a short instruction for your agent. Give that output to GPT-6.1 Sol, GPT-6 Astra, or another agent alongside the relevant test source. Model selection and reasoning effort belong to the agent host, not this CLI. No model credentials or provider SDKs are embedded.
+
+The report keeps failed actions, selectors, error messages, source locations when present, and bounded call logs. It skips screenshot bytes, DOM snapshots, network bodies, and successful-action detail. This reduces context size without claiming a tokenizer-independent token count or an AI diagnosis. Use Playwright Trace Viewer when visual evidence is needed.
+
+## GitHub Actions
+
+Authenticate with `gh auth login`, then provide an explicit repository, run ID, and artifact name:
+
+```sh
+pw-review github 123456789 --repo owner/repo --artifact playwright-report
 ```
 
-4. Add your Google Gemini API key to the `.env` file:
-```env
-VITE_GEMINI_API_KEY=your_api_key_here
+The command retrieves the named artifact through the installed GitHub CLI, analyzes its trace ZIPs, and prints a report. It does not post comments, create reviews, or modify the repository. Downloads and processing are bounded; temporary files are cleaned up. Artifacts must be available to the authenticated account and not expired.
+
+For CI, capture the exit status separately from the JSON:
+
+```sh
+pw-review analyze trace.zip --fail-on-error > review.json
 ```
 
-## Usage
+| Exit | Meaning |
+| --- | --- |
+| `0` | Report produced; failures do not change the exit code unless requested |
+| `1` | Trace failures observed with `--fail-on-error` |
+| `2` | Invalid input, exceeded limit, or runtime error |
 
-### Development
+Operational errors are JSON on stderr. `--help` and `--version` are plain text.
 
-Start the development server:
-```bash
-npm run dev
+## Input and output contracts
+
+Supported inputs include Playwright trace ZIPs and raw trace event streams. Events may be newline-delimited, concatenated JSON objects, or a JSON array. A ZIP can contain multiple `.trace` streams. Invalid JSON, unsupported content, corrupt archives, and resource-limit violations return errors rather than a fabricated successful test result.
+
+Reports use `schema_version: 1`. Summary counts describe **trace actions**, not test-run pass/fail totals; an incomplete action is not a passed action. A trace containing no observed failure is not proof the entire test suite passed. Comparison matches failures by action, selector, and source location, not ephemeral call IDs or archive size. Identical repeated failures are matched by occurrence; changed/missing source metadata can prevent a match.
+
+`truncated: true` means retained evidence was reduced. A comparison with truncated evidence is not a complete regression inventory. Error messages and selectors can contain application data; inspect reports before sharing them.
+
+| Option | Controls |
+| --- | --- |
+| `--max-bytes` | Input/decompressed trace byte budget |
+| `--max-events` | Trace event budget |
+| `--max-failures` | Retained failure details |
+| `--max-text` | Text detail length |
+| `--max-output-bytes` | Serialized output budget; oversized output fails rather than emitting broken JSON |
+
+See `pw-review --help` for defaults and GitHub-specific bounds. Limits are operational safeguards, not a claim of constant memory: ZIP metadata and active action state still consume memory within the input limits. The crate forbids unsafe Rust in project code; dependencies are separately maintained.
+
+## Development
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+cargo build --locked --release
 ```
 
-The application will be available at `http://localhost:5173`
+The GitHub workflow runs these on Linux and macOS. GitHub artifact retrieval requires a Unix host for bounded subprocess-tree cleanup. Local execution evidence and limitations are recorded in [validation](docs/validation.md).
 
-### Production
-
-Build the application:
-```bash
-npm run build
+```text
+rust/
+├── main.rs       CLI and output contract
+├── github.rs     bounded authenticated artifact retrieval
+├── trace.rs      trace parsing and action correlation
+├── report.rs     compact report and semantic comparison
+└── lib.rs        public analysis entry point
 ```
 
-Preview the production build:
-```bash
-npm run preview
-```
-
-
-## Project Structure
-
-```
-playwrigth-ai-test-reviewer/
-├── src/
-│   ├── components/          # React components
-│   │   ├── ui/             # Reusable UI components
-│   │   ├── FileUploadZone.tsx
-│   │   ├── TestResultItem.tsx
-│   │   ├── ResultsSummary.tsx
-│   │   └── LoadingSpinner.tsx
-│   ├── hooks/              # Custom React hooks
-│   │   └── useFileProcessing.ts
-│   ├── types/              # TypeScript type definitions
-│   │   └── index.ts
-│   ├── App.tsx             # Main application component
-│   └── main.tsx            # Application entry point
-├── utils/                  # Utility functions
-│   ├── zipProcessor.ts     # ZIP file processing logic
-│   ├── utils.ts           # Helper functions
-│   ├── types.ts           # Shared type definitions
-│   ├── apiCall.ts         # AI API integration
-│   └── index.ts           # Utility exports
-├── public/                # Static assets
-└── package.json           # Project dependencies
-```
-
-## Key Components
-
-### [`zipProcessor.ts`](utils/zipProcessor.ts)
-Handles ZIP file processing, trace analysis, and screenshot extraction from Playwright trace files.
-
-### [`useFileProcessing.ts`](src/hooks/useFileProcessing.ts)
-Custom React hook that manages file upload, processing state, and error handling.
-
-### [`TestResultItem.tsx`](src/components/TestResultItem.tsx)
-Component that displays individual test results with AI analysis, screenshots, and raw data.
-
-### [`apiCall.ts`](utils/apiCall.ts)
-Integrates with Google's Gemini AI to provide intelligent test failure analysis.
-
-## API Integration
-
-The application uses Google's Gemini AI for test analysis. The AI provides:
-
-- **Confidence Level**: Assessment of analysis reliability
-- **Error Cause**: Clear explanation of test failure reasons  
-- **Fix Suggestion**: Actionable recommendations for resolving issues
-
-## Tech Stack
-
-- **Frontend**: React 19, TypeScript
-- **Styling**: Tailwind CSS
-- **Build Tool**: Vite
-- **AI Integration**: Google Gemini AI via AI SDK
-- **File Processing**: JSZip for handling trace files
-- **Icons**: Lucide React
-- **Markdown**: react-markdown for AI response rendering
+The legacy React app remains in `src/` and `utils/`; its npm dependencies are not needed to build or run the CLI. Browser-based screenshot comparison and Gemini calls have not been ported into the headless CLI.
