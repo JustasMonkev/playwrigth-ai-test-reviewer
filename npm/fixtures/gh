@@ -1,0 +1,3 @@
+#!/bin/sh
+printf '%s %s' "$$" "$PPID" > "$PW_REVIEW_SIGNAL_READY"
+exec sleep 30
