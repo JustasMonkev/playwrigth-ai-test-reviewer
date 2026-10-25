@@ -196,7 +196,11 @@ fn stage(output: &Path, binaries: &[(&Platform, PathBuf)]) -> Result<()> {
         if let Some(libc) = platform.libc {
             native["libc"] = json!([libc]);
         }
-        native["files"] = json!(["bin/pw-review", "LICENSE"]);
+        native["files"] = json!(["bin/pw-review", "README.md", "LICENSE"]);
+        fs::write(
+            directory.join("README.md"),
+            include_str!("../npm/NATIVE_README.md"),
+        )?;
         write_manifest(&directory, &native)?;
         dependencies.insert(name.clone(), json!(VERSION));
         let mut entry = json!({"os":platform.os, "cpu":platform.cpu, "package":name});

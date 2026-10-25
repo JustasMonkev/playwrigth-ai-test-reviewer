@@ -45,7 +45,7 @@ Use the matching target from the table on another host. The output directory mus
 
 The stager requires a regular native executable with a matching 64-bit Mach-O or ELF header. It runs a host binary's `--version` and rejects a version different from Cargo. Cross-target executables cannot be run by the stager: verify `pw-review --version` on the target host before staging and verify every packed binary again before publishing. Header validation does not prove a binary's provenance or runtime compatibility. Supply only your own trusted build outputs.
 
-Only allowlisted launcher/readme/license files enter the main package; native packages contain the executable and license. Source, fixtures, development tests, build tooling, and evidence are excluded. Generated directories and tarballs stay under ignored `target/`; never commit binaries.
+Only allowlisted launcher/readme/license files enter the main package; native packages contain the executable, a native-package README, and license. Source, fixtures, development tests, build tooling, and evidence are excluded. Generated directories and tarballs stay under ignored `target/`; never commit binaries.
 
 ## Offline tarball installation
 
@@ -101,6 +101,8 @@ The suite uses the debug binaries from the preceding build (or `CARGO_TARGET_DIR
 
 ## Recorded installation evidence
 
+The following capture records version 0.1.0, before native packages included a README.
+
 ![Actual npm tarball contents, offline installation, and native failure/pass output](evidence/npm-install.png)
 
 The image captures a macOS arm64 release build installed into a fresh directory
@@ -116,3 +118,18 @@ with warnings denied, release build, and the JS slop checker. Each npm suite run
 packs and installs real tarballs and tests process cancellation. No GitHub
 workflow or job was added or modified. No npm package was published. Native
 package availability and execution on additional targets remain release checks.
+
+## Native README correction in 0.1.1
+
+Version 0.1.0 omitted the native README. Version 0.1.1 includes a dedicated
+`README.md` in every native package with installation guidance and an explanation
+of its relationship to the launcher. Both packages retain the same Cargo version.
+
+![Actual native tarball README and passing install regression](evidence/native-package-readme.png)
+
+The new regression first failed on the missing packed file and installed README,
+then passed after the fix. All **10 npm tests** and **118 Rust tests** pass;
+formatting, Clippy, release build, and JS slop-check also pass. The image shows
+the README extracted from the actual macOS arm64 release tarball. Version 0.1.1
+was staged and packed locally, not published. Updating the npm package page
+requires publishing the new native version, then the matching launcher version.
