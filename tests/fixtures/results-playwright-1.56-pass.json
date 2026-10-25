@@ -1,0 +1,202 @@
+{
+  "config": {
+    "projects": [
+      {
+        "id": "chromium",
+        "name": "chromium"
+      }
+    ]
+  },
+  "suites": [
+    {
+      "title": "review.spec.js",
+      "specs": [
+        {
+          "title": "passes",
+          "file": "review.spec.js",
+          "line": 2,
+          "column": 1,
+          "tests": [
+            {
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "expectedStatus": "passed",
+              "status": "expected",
+              "results": [
+                {
+                  "status": "passed",
+                  "retry": 0,
+                  "duration": 2,
+                  "errors": [],
+                  "attachments": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "fails",
+          "file": "review.spec.js",
+          "line": 3,
+          "column": 1,
+          "tests": [
+            {
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "expectedStatus": "passed",
+              "status": "expected",
+              "results": [
+                {
+                  "status": "passed",
+                  "retry": 0,
+                  "duration": 0,
+                  "errors": [],
+                  "attachments": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "skipped",
+          "file": "review.spec.js",
+          "line": 4,
+          "column": 1,
+          "tests": [
+            {
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "expectedStatus": "skipped",
+              "status": "skipped",
+              "results": [
+                {
+                  "status": "skipped",
+                  "retry": 0,
+                  "duration": 0,
+                  "errors": [],
+                  "attachments": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "expected failure",
+          "file": "review.spec.js",
+          "line": 5,
+          "column": 1,
+          "tests": [
+            {
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "expectedStatus": "failed",
+              "status": "expected",
+              "results": [
+                {
+                  "status": "failed",
+                  "retry": 0,
+                  "duration": 1,
+                  "errors": [
+                    {
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mfalse\u001b[39m\n\n  3 | test('fails', async () => { expect('expected').toBe('expected'); });\n  4 | test('skipped', async () => { test.skip(); });\n> 5 | test('expected failure', async () => { test.fail(); expect(false).toBe(true); });\n    |                                                                   ^\n  6 | test('unexpected pass', async () => { expect(true).toBe(true); });\n  7 | test('retry recovery', async ({}, info) => { expect(info.retry).toBeGreaterThan(0); });\n  8 | test('times out', async () => { test.setTimeout(500); await new Promise(resolve => setTimeout(resolve, 300)); });\n    at review.spec.js:5:67"
+                    }
+                  ],
+                  "attachments": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "unexpected pass",
+          "file": "review.spec.js",
+          "line": 6,
+          "column": 1,
+          "tests": [
+            {
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "expectedStatus": "passed",
+              "status": "expected",
+              "results": [
+                {
+                  "status": "passed",
+                  "retry": 0,
+                  "duration": 0,
+                  "errors": [],
+                  "attachments": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "retry recovery",
+          "file": "review.spec.js",
+          "line": 7,
+          "column": 1,
+          "tests": [
+            {
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "expectedStatus": "passed",
+              "status": "flaky",
+              "results": [
+                {
+                  "status": "failed",
+                  "retry": 0,
+                  "duration": 0,
+                  "errors": [
+                    {
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeGreaterThan\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nExpected: > \u001b[32m0\u001b[39m\nReceived:   \u001b[31m0\u001b[39m\n\n  5 | test('expected failure', async () => { test.fail(); expect(false).toBe(true); });\n  6 | test('unexpected pass', async () => { expect(true).toBe(true); });\n> 7 | test('retry recovery', async ({}, info) => { expect(info.retry).toBeGreaterThan(0); });\n    |                                                                 ^\n  8 | test('times out', async () => { test.setTimeout(500); await new Promise(resolve => setTimeout(resolve, 300)); });\n  9 |\n    at review.spec.js:7:65"
+                    }
+                  ],
+                  "attachments": []
+                },
+                {
+                  "status": "passed",
+                  "retry": 1,
+                  "duration": 2,
+                  "errors": [],
+                  "attachments": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "times out",
+          "file": "review.spec.js",
+          "line": 8,
+          "column": 1,
+          "tests": [
+            {
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "expectedStatus": "passed",
+              "status": "expected",
+              "results": [
+                {
+                  "status": "passed",
+                  "retry": 0,
+                  "duration": 303,
+                  "errors": [],
+                  "attachments": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-25T14:06:54.479Z",
+    "duration": 1005.246,
+    "expected": 5,
+    "skipped": 1,
+    "unexpected": 0,
+    "flaky": 1
+  }
+}
