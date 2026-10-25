@@ -2,7 +2,7 @@ use crate::{Limits, trace::frames::Frames};
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Component, Path};
 use zip::ZipArchive;
@@ -20,9 +20,21 @@ pub(super) enum Input {
 
 impl Input {
     pub(super) fn open(path: &Path, limits: &Limits) -> Result<Self> {
-        let mut file =
-            File::open(path).with_context(|| format!("Cannot open {}", path.display()))?;
-        if file.metadata()?.len() > limits.max_bytes {
+        let mut options = OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(nix::libc::O_NONBLOCK);
+        }
+        let mut file = options
+            .open(path)
+            .with_context(|| format!("Cannot open {}", path.display()))?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file() {
+            bail!("Evidence input must be a regular file");
+        }
+        if metadata.len() > limits.max_bytes {
             bail!("Input exceeds max_bytes");
         }
         let mut signature = [0; 2];

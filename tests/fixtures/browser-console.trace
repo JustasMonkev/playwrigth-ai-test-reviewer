@@ -1,0 +1,2 @@
+{"type":"console","messageType":"error","text":"review-console-error","args":[{"preview":"review-console-error","value":"review-console-error"}],"location":{"url":"","lineNumber":0,"columnNumber":8},"time":1110.068,"pageId":"page@b14baba2ecebc60aaec747af0f8d05fc"}
+{"type":"event","time":1139.55,"class":"BrowserContext","method":"pageError","params":{"error":{"error":{"message":"review-page-error","stack":"Error: review-page-error\n    at <anonymous>:1:62","name":"Error"}}},"pageId":"page@b14baba2ecebc60aaec747af0f8d05fc"}

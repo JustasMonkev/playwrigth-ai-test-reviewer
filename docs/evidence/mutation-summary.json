@@ -1,0 +1,85 @@
+{
+  "scope": "Six targeted production faults; not a global mutation score",
+  "handoff_words": 189,
+  "source_base": "650d96dd3d35234d5108c291011f78feedfae5d8",
+  "source_head": "181f395477f644bd4b7c1790d4c337ba73f05372",
+  "source_includes_working_tree": true,
+  "manifest_sha256": "7f6da9f6ab79319e129c52ac792cd86d56accf7f31824ce93c8be73eb4f9d043",
+  "tests_per_baseline_and_restoration": 44,
+  "results": [
+    {
+      "contract": "results",
+      "fault": "Ignore expected failure/expected status and always expect a pass.",
+      "production_path": "rust/results.rs",
+      "production_sha256": "64bc858c62f7b0a67aa9fcabdcb6c4d5c35ef9236a45c89e9051ba99c0b404af",
+      "test": "expected_failure_unexpected_pass_and_skip_are_distinct",
+      "assertion": "thread 'expected_failure_unexpected_pass_and_skip_are_distinct' (15143461) panicked at tests/results_contract.rs:80:9:\nassertion `left == right` failed\n  left: Unexpected\n right: Expected\ntest identity_includes_project_browser_nested_title_and_repeat_index ... ok\ntest runner_errors_fail_an_empty_run_even_without_details ... ok\ntest detail_caps_preserve_totals_and_attachment_paths_are_not_opened ... ok\ntest expected_failure_unexpected_pass_and_skip_are_distinct ... FAILED\ntest bytes_events_and_unicode_text_are_bounded ... ok\ntest malformed_schema_unknown_status_and_inconsistent_outcomes_fail ... ok\n",
+      "baseline_exit": 0,
+      "mutant_exit": 101,
+      "restored_exit": 0,
+      "classification": "killed"
+    },
+    {
+      "contract": "history",
+      "fault": "Conflate cross-commit expected/unexpected runs with same-commit mixed outcomes.",
+      "production_path": "rust/history.rs",
+      "production_sha256": "0e3ab4fb799fec5d9a1290ceab8ce1100df4c32b3b7653baa35c9ef009e4a723",
+      "test": "retry_recovery_and_cross_commit_mixed_results_are_not_conflated",
+      "assertion": "thread 'retry_recovery_and_cross_commit_mixed_results_are_not_conflated' (15157800) panicked at tests/history_contract.rs:113:5:\nassertion failed: !observation.same_commit_mixed_outcomes\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\ntest retry_recovery_and_cross_commit_mixed_results_are_not_conflated ... FAILED\ntest project_file_and_title_changes_do_not_merge_history ... ok\n",
+      "baseline_exit": 0,
+      "mutant_exit": 101,
+      "restored_exit": 0,
+      "classification": "killed"
+    },
+    {
+      "contract": "diagnostics",
+      "fault": "Count uncaught page exceptions as console errors as well.",
+      "production_path": "rust/diagnostics.rs",
+      "production_sha256": "0bf24e1bd7cad11cf76c353e71f56cf33f0d4337d2b83936cdb776dd80682197",
+      "test": "console_error_and_actual_nested_page_error_shapes_are_bounded_and_not_test_outcomes",
+      "assertion": "thread 'console_error_and_actual_nested_page_error_shapes_are_bounded_and_not_test_outcomes' (15161846) panicked at tests/diagnostics_contract.rs:69:5:\nassertion `left == right` failed\n  left: (2, 1)\n right: (1, 1)\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n",
+      "baseline_exit": 0,
+      "mutant_exit": 101,
+      "restored_exit": 0,
+      "classification": "killed"
+    },
+    {
+      "contract": "temporal",
+      "fault": "Join overlapping requests/actions across different pages within one stream.",
+      "production_path": "rust/temporal.rs",
+      "production_sha256": "5effcc85f62ea3c6beabef48dd6f656cb988dd94dc7b47be21535e08a8587eb4",
+      "test": "temporal_candidates_require_the_same_library_stream_page_and_clock_overlap",
+      "assertion": "thread 'temporal_candidates_require_the_same_library_stream_page_and_clock_overlap' (15164581) panicked at tests/diagnostics_contract.rs:224:5:\nassertion `left == right` failed\n  left: 2\n right: 1\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\ntest temporal_candidates_require_the_same_library_stream_page_and_clock_overlap ... FAILED\n",
+      "baseline_exit": 0,
+      "mutant_exit": 101,
+      "restored_exit": 0,
+      "classification": "killed"
+    },
+    {
+      "contract": "endpoints",
+      "fault": "Convert unknown durations into known zero-duration samples.",
+      "production_path": "rust/endpoints.rs",
+      "production_sha256": "13d69a1865c88117fff877792f2160556d6926b2e356b43021e597b5ae100edf",
+      "test": "endpoint_aggregates_cover_all_requests_without_inventing_unknown_durations",
+      "assertion": "thread 'endpoint_aggregates_cover_all_requests_without_inventing_unknown_durations' (15167387) panicked at tests/diagnostics_contract.rs:310:5:\nassertion `left == right` failed\n  left: (3, 3, 0, 3)\n right: (3, 2, 1, 3)\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n",
+      "baseline_exit": 0,
+      "mutant_exit": 101,
+      "restored_exit": 0,
+      "classification": "killed"
+    },
+    {
+      "contract": "evidence",
+      "fault": "Allow extraction to overwrite an already-existing regular output file.",
+      "production_path": "rust/evidence/output.rs",
+      "production_sha256": "6b42539acb22082b06e826a3353a369f86bfed5437cd2fa6089edb5ba80b556b",
+      "test": "explicit_extraction_matches_original_jpeg_and_snapshot_record_bytes",
+      "assertion": "thread 'explicit_extraction_matches_original_jpeg_and_snapshot_record_bytes' (15171273) panicked at tests/evidence_contract.rs:117:9:\nassertion failed: extract_evidence(&path, &item.id, &output, &Limits::default()).is_err()\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\ntest missing_resources_and_raw_dom_remain_distinct_and_unknown_ids_do_not_write ... ok\ntest catalog_caps_clip_metadata_but_ids_and_extraction_are_not_clipped ... ok\ntest explicit_extraction_matches_original_jpeg_and_snapshot_record_bytes ... FAILED\ntest output_and_archive_symlinks_cannot_escape_or_overwrite ... ok\ntest full_scan_covers_later_entries_after_catalog_is_full_and_absence_is_not_an_error ... ok\ntest compressed_trace_and_screenshot_budgets_apply_before_output_creation ... ok\ntest unsafe_members_resource_references_duplicate_members_and_malformed_records_fail_closed ... ok\n",
+      "baseline_exit": 0,
+      "mutant_exit": 101,
+      "restored_exit": 0,
+      "classification": "killed"
+    }
+  ],
+  "restoration_verified": true,
+  "probe_removed": true
+}
