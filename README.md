@@ -1,6 +1,6 @@
 # Playwright AI Test Reviewer
 
-`pw-review` turns Playwright traces into small, deterministic evidence reports for coding agents. Written in Rust; local analysis needs no browser, Node runtime, API key, or model call.
+`pw-review` turns Playwright test results and traces into deterministic evidence reports for coding agents. Written in Rust; local analysis needs no browser, Node runtime, API key, or model call.
 
 ## Install
 
@@ -14,6 +14,7 @@ pw-review --help
 ## Agent workflow
 
 ```sh
+pw-review results results.json --fail-on-error
 pw-review analyze test-results/example/trace.zip
 pw-review compare baseline.zip failed.zip
 pw-review analyze trace.zip --prompt --max-output-bytes 12000
@@ -22,7 +23,21 @@ pw-review analyze trace.zip --fail-on-error
 
 JSON is compact by default; use `--pretty` for a human-readable report. `--prompt` adds a short instruction for your agent. Give that output to GPT-6.1 Sol, GPT-6 Astra, or another agent alongside the relevant test source. Model selection and reasoning effort belong to the agent host, not this CLI. No model credentials or provider SDKs are embedded.
 
-The report keeps failed actions, selectors, error messages, source locations when present, and bounded call logs. It skips screenshot bytes, DOM snapshots, network bodies, and successful-action detail. This reduces context size without claiming a tokenizer-independent token count or an AI diagnosis. Use Playwright Trace Viewer when visual evidence is needed.
+The report keeps failed actions, selectors, error messages, source locations when present, and bounded call logs. It skips screenshot bytes, DOM snapshots, network bodies, and successful-action detail. This reduces context size without claiming a tokenizer-independent token count or an AI diagnosis. Use `evidence list` and `evidence extract` for on-demand screenshots and DOM snapshots, or Playwright Trace Viewer for interactive inspection.
+
+## Test outcomes, history, and visual evidence
+
+```sh
+pw-review results results.json --fail-on-error
+pw-review history record results.json --store .review-history --run-id ci-123 --commit abc123
+pw-review history show --store .review-history
+pw-review evidence list trace.zip --max-evidence 20
+pw-review evidence extract trace.zip --id EVIDENCE_ID --output screenshot.jpeg
+```
+
+`results` reads Playwright's JSON reporter output and preserves expected versus unexpected outcomes, retries, skips, timeouts, interrupted attempts, and runner errors. History is explicitly recorded, never silently collected or overwritten. Mixed outcomes across commits are observations, not proof of flakiness. Visual extraction selects an ID from the catalog and writes one new file; it never executes captured HTML.
+
+Trace analysis also reports bounded console errors and uncaught browser exceptions. These supplement action failures without changing the existing action-based trace exit policy. See the [test-review workflow](docs/test-review.md) for commands, limits, and interpretation.
 
 ## Network evidence
 
@@ -31,7 +46,7 @@ pw-review analyze trace.zip --slow-ms 1000 --max-network 20
 pw-review compare before.zip after.zip --prompt
 ```
 
-Network logs expose observed HTTP errors, transport failures, and slow requests. The default threshold is 1,000 ms (inclusive). Reports count all requests but retain only failed/slow request details: method, URL, status, elapsed milliseconds, available wait timing, and transport error code. Failures rank first, then longest duration; a later higher-priority request can replace a retained item. These are individual request samples, not endpoint percentiles or proof of server-side latency.
+Network logs expose observed HTTP errors, transport failures, and slow requests. The default threshold is 1,000 ms (inclusive). Reports count all requests but retain only failed/slow request details: method, URL, status, elapsed milliseconds, available wait timing, and transport error code. Failures rank first, then longest duration; a later higher-priority request can replace a retained item. Bounded endpoint aggregates additionally group exact redacted method/URL pairs and compare available mean latencies with sample counts. These are not endpoint percentiles or proof of server-side latency. Compatible page/stream timestamps can associate requests with candidate actions; overlap is not causation.
 
 URL credentials, queries, and fragments are removed before text clipping. Headers, cookies, and bodies are never included; paths can still contain application data. Missing/negative durations remain unknown, not zero. HTTP 400–599 and explicit transport errors count as network failures; missing/negative status alone denotes an incomplete observation. Aborted requests are reported but can be intentional.
 
@@ -56,7 +71,7 @@ pw-review analyze trace.zip --fail-on-error > review.json
 | Exit | Meaning |
 | --- | --- |
 | `0` | Report produced; failures do not change the exit code unless requested |
-| `1` | Trace failures observed with `--fail-on-error` |
+| `1` | With `--fail-on-error`: action failures for traces, or unexpected/interrupted/runner-error outcomes for results and history recording |
 | `2` | Invalid input, exceeded limit, or runtime error |
 
 Operational errors are JSON on stderr. `--help` and `--version` are plain text.
@@ -67,7 +82,7 @@ Supported inputs include Playwright trace ZIPs and raw trace event streams. Even
 
 Browser and test-runner copies of a step are merged only when step ID, recording scope, stream roles, timing, and available selector/location evidence agree. Streams in different archive directories are separate recordings. Clock metadata is normalized for matching, with a one-millisecond allowance for integer wall-clock rounding. Ambiguous or missing cross-stream timing evidence leaves actions distinct. A runner error immediately repeating its failed action is counted once; identical standalone errors are independent.
 
-Reports use `schema_version: 1`. Summary counts describe **trace actions**, not test-run pass/fail totals; an incomplete action is not a passed action. A trace containing no observed failure is not proof the entire test suite passed. Comparison matches failures by action, selector, and source location, not ephemeral call IDs or archive size. Identical repeated failures are matched by occurrence; changed/missing source metadata can prevent a match.
+Reports use `schema_version: 1`. `analyze` summary counts describe **trace actions**, not test-run pass/fail totals; an incomplete action is not a passed action. A trace containing no observed failure is not proof the entire test suite passed. Comparison matches failures by action, selector, and source location, not ephemeral call IDs or archive size. Identical repeated failures are matched by occurrence; changed/missing source metadata can prevent a match.
 
 `truncated: true` means retained evidence was reduced. A comparison with truncated evidence is not a complete regression inventory. Error messages and selectors can contain application data; inspect reports before sharing them.
 
@@ -76,6 +91,9 @@ Reports use `schema_version: 1`. Summary counts describe **trace actions**, not 
 | `--max-bytes` | Input/decompressed trace byte budget |
 | `--max-events` | Trace event budget |
 | `--max-failures` | Retained failure details |
+| `--max-console` | Retained console errors / uncaught exceptions (default 20) |
+| `--max-endpoints` | Distinct endpoint aggregates (default 20) |
+| `--max-evidence` | Visual catalog items (default 100) |
 | `--max-network` | Retained failed/slow requests (default 20; shared across artifact traces) |
 | `--slow-ms` | Inclusive slow-request threshold (default 1,000 ms) |
 | `--max-text` | Text detail length |
@@ -92,11 +110,16 @@ cargo test --locked
 cargo build --locked --release
 ```
 
-The GitHub workflow runs these on Linux and macOS. GitHub artifact retrieval requires a Unix host for bounded subprocess-tree cleanup. The test suite includes nine small captured trace fixtures, so compatibility checks need only Cargo. Local execution evidence and limitations are recorded in [validation](docs/validation.md).
+The GitHub workflow runs these on Linux and macOS. GitHub artifact retrieval requires a Unix host for bounded subprocess-tree cleanup. The test suite includes captured trace and reporter fixtures, so compatibility checks need only Cargo. Local execution evidence and limitations are recorded in [validation](docs/validation.md).
 
 ```text
 rust/
-├── main.rs       CLI and output contract
+├── main.rs       output and exit contract
+├── cli.rs        command-line arguments
+├── commands.rs   command dispatch
+├── results/      test-result decoding and outcome model
+├── history/      local run persistence
+├── evidence/     on-demand catalog and safe extraction
 ├── github.rs     bounded authenticated artifact retrieval
 ├── trace.rs      archive/stream parsing and shared usage budgets
 ├── trace/
@@ -108,6 +131,6 @@ rust/
 └── lib.rs        public analysis entry point
 ```
 
-The repository contains Rust source and Cargo tooling only. There is no web server, frontend dependency tree, or model-provider client. Screenshot/DOM interpretation remains outside the CLI.
+The repository contains Rust source and Cargo tooling only. There is no web server, frontend dependency tree, or model-provider client. Screenshot/DOM interpretation remains outside the CLI; extraction is explicit and currently requires Unix for safe no-overwrite file creation.
 
 Library callers can use `analyze(&Path, &Limits) -> Result<Report>` for one input or `analyze_all(&[PathBuf], &Limits) -> Result<Vec<Report>>` for a batch sharing byte, event, and retained-evidence budgets. Reports preserve input order. A batch fails on the first invalid or over-budget input without returning partial reports; separate inputs are not deduplicated against one another.

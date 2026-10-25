@@ -11,7 +11,7 @@ cargo test --locked
 cargo build --locked --release
 ```
 
-The final checks pass 71 Rust tests covering parser and report units, CLI contracts, nested GitHub artifacts, and ten captured real traces. The GitHub workflow runs the Cargo gates on Linux and macOS.
+The network-feature checkpoint (`5b8f263`) passed 71 Rust tests covering parser and report units, CLI contracts, nested GitHub artifacts, and ten captured real traces. Current six-feature validation is recorded in [complete review validation](review-validation.md). The GitHub workflow runs the Cargo gates on Linux and macOS.
 
 ## Review regressions
 
@@ -69,11 +69,11 @@ During this revision, an external temporary Playwright 1.56.1 installation and c
 
 The Playwright version matches the local Grafana checkout's pin. Neither Grafana's application suite nor either upstream repository's complete test suite was run. Live GitHub authentication was previously checked, but no available Grafana artifact was found; live artifact download is not established by the local test double.
 
-## Failure versus pass comparison and tokens
+## Historical trace comparison and token baseline
 
 ![Actual comparison output in both directions](evidence/failure-pass-comparison.png)
 
-The image displays actual `--pretty` stdout from the release binary, not an application mockup. Reproduce it from the repository root:
+The image records actual `--pretty` stdout from the network-feature checkpoint, not an application mockup. These commands still exercise the same comparison; current output additionally includes action references:
 
 ```sh
 target/release/pw-review compare tests/fixtures/browser-hard.zip tests/fixtures/browser-pass.zip --pretty
@@ -93,7 +93,7 @@ Default exit status is zero in both cases. `truncated: true` is preserved becaus
 | Pretty JSON | 1,706 | 561 |
 | Agent prompt (`--prompt`) | 1,817 | 546 |
 
-Counts include the trailing newline, using `tiktoken 0.14.0` with `get_encoding("o200k_base")` and the length of `encode(stdout)`, measured in an isolated temporary environment. Compact and pretty comparison outputs remain byte-identical to the original measured samples. Prompt output was remeasured after adding the network-review instructions. Token counts depend on encoding, paths, evidence, and options; these are not asserted to be GPT-6.1 billing counts. The tokenizer is not a repository dependency.
+Counts include the trailing newline, using `tiktoken 0.14.0` with `get_encoding("o200k_base")` and the length of `encode(stdout)`, measured in an isolated temporary environment. These measurements describe the saved checkpoint samples. Current action references and prompt instructions change the byte/token counts; see current validation above. Token counts depend on encoding, paths, evidence, and options; these are not asserted to be GPT-6.1 billing counts. The tokenizer is not a repository dependency.
 
 For this fixture pair, the original `.trace` entries contain 18,794 bytes and 5,911 tokens (sum of separately encoded entries). The compact comparison is 92.08% smaller in tokens. This is a lossy evidence summary, not compression of equivalent information; ZIP binaries, snapshots, and images are excluded from that baseline.
 
@@ -119,7 +119,7 @@ No network data is inferred from absent logs. Empty or missing logs cannot estab
 
 A fresh-context mutation worker received a 147-word handoff and worked only in an isolated regular-file copy. Four deliberately injected faults were killed by unchanged public-entry tests: reversing failure retention priority, ignoring transport errors, preserving URL query/fragment secrets, and resetting batch usage. Each baseline and restored run passed; each mutant failed an intended behavioral assertion. The batch mutant stopped at the detail-cap assertion, so it does not independently prove byte/event mutation sensitivity. The parent inspected the assertion evidence and restoration; all probe files were restored and the probe removed. This is targeted evidence, not a global mutation score.
 
-The actual compact network example in [network-analysis.json](evidence/network-analysis.json) is 971 UTF-8 bytes / 304 `o200k_base` tokens, measured with the same isolated tiktoken version above. It preserves all six request totals and four noteworthy request details. No LLM calls are made. The old failure/pass comparison remains 468 tokens in compact form; its optional agent prompt is now 546 tokens after the network instructions were added.
+The historical compact network example in [network-analysis.json](evidence/network-analysis.json) is 971 UTF-8 bytes / 304 `o200k_base` tokens, measured with the same isolated tiktoken version above. It preserves all six request totals and four noteworthy request details. No LLM calls are made. At that checkpoint, the failure/pass comparison was 468 tokens in compact form and its optional agent prompt was 546 tokens. Current endpoint summaries and action references add context and must be measured separately.
 
 Independent review found that empty standalone `.network` files were still rejected despite observed log availability. Direct empty-file, empty-array, and network-only ZIP regressions failed before changing the acceptance check from request count to observed-log presence, then passed. This predicate correction follows the mutation snapshot and has separate red-to-green evidence.
 

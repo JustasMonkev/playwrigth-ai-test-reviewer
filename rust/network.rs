@@ -1,4 +1,6 @@
 use crate::Limits;
+use crate::endpoints::Endpoints;
+use crate::temporal::Temporal;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::cmp::{Ordering, Reverse};
@@ -15,6 +17,10 @@ pub struct NetworkReport {
     pub slow_threshold_ms: u64,
     pub evidence: Vec<NetworkRequest>,
     pub truncated: bool,
+    pub endpoints: Vec<crate::EndpointLatency>,
+    pub endpoints_truncated: bool,
+    pub endpoint_omitted_requests: usize,
+    pub temporal_context_truncated: bool,
 }
 
 impl NetworkReport {
@@ -37,6 +43,8 @@ pub struct NetworkRequest {
     pub transport_error: Option<String>,
     pub failed: bool,
     pub slow: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub temporal_candidates: Vec<crate::TemporalCandidate>,
 }
 
 #[derive(Deserialize)]
@@ -51,6 +59,9 @@ struct Snapshot {
     request: Request,
     response: Response,
     time: Option<f64>,
+    pageref: Option<String>,
+    #[serde(rename = "_monotonicTime")]
+    monotonic_time: Option<f64>,
     timings: Option<Timings>,
 }
 
@@ -75,6 +86,9 @@ struct Timings {
 struct Ranked {
     request: NetworkRequest,
     sequence: usize,
+    stream: String,
+    page: Option<String>,
+    start: Option<f64>,
 }
 
 impl PartialEq for Ranked {
@@ -107,16 +121,18 @@ pub(crate) struct NetworkAccumulator {
     report: NetworkReport,
     retained: BinaryHeap<Reverse<Ranked>>,
     capacity: usize,
+    endpoints: Endpoints,
 }
 
 impl NetworkAccumulator {
-    pub(crate) fn new(limits: &Limits, already_retained: usize) -> Self {
+    pub(crate) fn new(limits: &Limits, already_retained: usize, endpoint_retained: usize) -> Self {
         Self {
             report: NetworkReport {
                 slow_threshold_ms: limits.slow_ms,
                 ..NetworkReport::default()
             },
             retained: BinaryHeap::new(),
+            endpoints: Endpoints::new(limits.max_endpoints.saturating_sub(endpoint_retained)),
             capacity: limits.max_network.saturating_sub(already_retained),
         }
     }
@@ -125,7 +141,7 @@ impl NetworkAccumulator {
         self.report.log_entries += 1;
     }
 
-    pub(crate) fn read(&mut self, frame: &[u8], max_text: usize) -> Result<()> {
+    pub(crate) fn read(&mut self, frame: &[u8], max_text: usize, stream: &str) -> Result<()> {
         let record: Record = serde_json::from_slice(frame)?;
         if record.kind != "resource-snapshot" {
             return Ok(());
@@ -151,6 +167,9 @@ impl NetworkAccumulator {
         self.report.slow += usize::from(slow);
         self.report.incomplete += usize::from(status.is_none() && transport.is_none());
         self.report.unknown_duration += usize::from(duration.is_none());
+        let url = redact_url(&snapshot.request.url);
+        self.endpoints
+            .read(&snapshot.request.method, &url, duration, failed, max_text);
         if !failed && !slow {
             return Ok(());
         }
@@ -160,7 +179,8 @@ impl NetworkAccumulator {
         }
         let mut request = NetworkRequest {
             method: snapshot.request.method,
-            url: redact_url(&snapshot.request.url),
+            url,
+            temporal_candidates: Vec::new(),
             status,
             duration_ms: duration,
             wait_ms: snapshot
@@ -187,6 +207,9 @@ impl NetworkAccumulator {
         let ranked = Reverse(Ranked {
             request,
             sequence: self.report.requests,
+            stream: stream.into(),
+            page: snapshot.pageref,
+            start: snapshot.monotonic_time,
         });
         if self.retained.len() < self.capacity {
             self.retained.push(ranked);
@@ -199,18 +222,31 @@ impl NetworkAccumulator {
         Ok(())
     }
 
-    pub(crate) fn finish(mut self) -> NetworkReport {
-        self.report.evidence = self
-            .retained
-            .into_sorted_vec()
-            .into_iter()
-            .map(|r| r.0.request)
-            .collect();
+    pub(crate) fn finish(mut self, temporal: &Temporal) -> NetworkReport {
+        for ranked in self.retained.into_sorted_vec() {
+            let mut ranked = ranked.0;
+            let (candidates, truncated) = temporal.candidates(
+                &ranked.stream,
+                ranked.page.as_deref(),
+                ranked.start,
+                ranked.request.duration_ms,
+            );
+            ranked.request.temporal_candidates = candidates;
+            self.report.temporal_context_truncated |= truncated;
+            self.report.evidence.push(ranked.request);
+        }
+        self.report.temporal_context_truncated |=
+            temporal.truncated && !self.report.evidence.is_empty();
+        self.report.endpoint_omitted_requests = self.endpoints.omitted_requests;
+        self.report.endpoints_truncated = self.endpoints.omitted_requests != 0;
+        self.report.truncated |=
+            self.report.endpoints_truncated || self.report.temporal_context_truncated;
+        self.report.endpoints = self.endpoints.finish();
         self.report
     }
 }
 
-fn redact_url(url: &str) -> String {
+pub(crate) fn redact_url(url: &str) -> String {
     let base = url.split(['?', '#']).next().unwrap_or("");
     let Some((scheme, rest)) = base.split_once("://") else {
         return "<non-http-url>".into();

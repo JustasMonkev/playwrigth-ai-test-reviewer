@@ -15,6 +15,10 @@ pub struct Location {
 pub struct Failure {
     #[serde(skip)]
     pub(crate) identity: FailureIdentity,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace_entry: Option<usize>,
     pub action: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selector: Option<String>,
@@ -55,6 +59,8 @@ pub struct Report {
     pub truncated: bool,
     #[serde(skip_serializing_if = "crate::NetworkReport::absent")]
     pub network: crate::NetworkReport,
+    #[serde(skip_serializing_if = "crate::ConsoleReport::absent")]
+    pub console: crate::ConsoleReport,
 }
 
 impl Report {
@@ -97,7 +103,28 @@ pub fn compare(before: &Report, after: &Report) -> Value {
         "truncated": before.truncated || after.truncated,
     });
     if !before.network.absent() || !after.network.absent() {
-        result["network"] = json!({"before": before.network, "after": after.network});
+        let endpoint_comparisons: Vec<_> = after
+            .network
+            .endpoints
+            .iter()
+            .filter_map(|new| {
+                let old = before
+                    .network
+                    .endpoints
+                    .iter()
+                    .find(|old| old.method == new.method && old.url == new.url)?;
+                let mut comparison =
+                    json!({"method":new.method,"url":new.url,"before":old,"after":new});
+                if let Some((old_mean, new_mean)) = old.mean_ms.zip(new.mean_ms) {
+                    comparison["mean_delta_ms"] = json!(new_mean - old_mean);
+                }
+                Some(comparison)
+            })
+            .collect();
+        result["network"] = json!({"before": before.network, "after": after.network, "endpoint_comparisons": endpoint_comparisons});
+    }
+    if !before.console.absent() || !after.console.absent() {
+        result["console"] = json!({"before":before.console,"after":after.console});
     }
     result
 }
@@ -126,6 +153,8 @@ mod tests {
                             column: Some(2),
                         }),
                     },
+                    call_id: None,
+                    trace_entry: None,
                     action: "locator.click".into(),
                     selector: Some("#submit".into()),
                     error: (*error).into(),
@@ -141,6 +170,7 @@ mod tests {
                 .collect(),
             truncated: false,
             network: crate::NetworkReport::default(),
+            console: crate::ConsoleReport::default(),
         }
     }
 

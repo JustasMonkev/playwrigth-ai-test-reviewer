@@ -3,7 +3,9 @@ use super::*;
 fn parse(input: &[u8], limits: &Limits) -> Result<Report> {
     let mut usage = Usage::default();
     let mut analysis = Analysis {
-        network: NetworkAccumulator::new(limits, 0),
+        diagnostics: crate::diagnostics::Diagnostics::new(20),
+        temporal: crate::temporal::Temporal::new(80),
+        network: NetworkAccumulator::new(limits, 0, 0),
         limits,
         usage: &mut usage,
         report: Report {
@@ -13,6 +15,7 @@ fn parse(input: &[u8], limits: &Limits) -> Result<Report> {
             failures: Vec::new(),
             truncated: false,
             network: crate::NetworkReport::default(),
+            console: crate::ConsoleReport::default(),
         },
         recognized: 0,
         completed_steps: HashMap::new(),
@@ -20,7 +23,7 @@ fn parse(input: &[u8], limits: &Limits) -> Result<Report> {
         wall_time: TimeSpan::default(),
         unanchored_time: TimeSpan::default(),
     };
-    analysis.read_trace(input, Path::new(""))?;
+    analysis.read_trace(input, Path::new(""), "")?;
     Ok(analysis.report)
 }
 
@@ -161,7 +164,9 @@ fn trace_entry_duration_spans_overlapping_and_sequential_streams() {
     let limits = Limits::default();
     let mut usage = Usage::default();
     let mut analysis = Analysis {
-        network: NetworkAccumulator::new(&limits, 0),
+        diagnostics: crate::diagnostics::Diagnostics::new(20),
+        temporal: crate::temporal::Temporal::new(80),
+        network: NetworkAccumulator::new(&limits, 0, 0),
         limits: &limits,
         usage: &mut usage,
         report: Report {
@@ -171,6 +176,7 @@ fn trace_entry_duration_spans_overlapping_and_sequential_streams() {
             failures: Vec::new(),
             truncated: false,
             network: crate::NetworkReport::default(),
+            console: crate::ConsoleReport::default(),
         },
         recognized: 0,
         completed_steps: HashMap::new(),
@@ -182,7 +188,7 @@ fn trace_entry_duration_spans_overlapping_and_sequential_streams() {
         let input =
             format!(r#"{{"type":"action","method":"click","startTime":{start},"endTime":{end}}}"#);
         analysis
-            .read_trace(input.as_bytes(), Path::new(""))
+            .read_trace(input.as_bytes(), Path::new(""), "")
             .unwrap();
     }
     assert_eq!(analysis.report.summary.duration_ms, 15.0);

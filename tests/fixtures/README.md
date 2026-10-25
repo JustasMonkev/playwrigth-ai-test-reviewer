@@ -38,3 +38,20 @@ The ZIP retains the original context-options and goto before/after lines (source
 - Minimized ZIP SHA-256: `9370ad603004e1b42c3a71573e20f2e76b65b8eeb43125575795d455165e39f8`
 - Retained `.trace` bytes: 773; `.network` bytes: 2,115.
 - Slow 200: 1,202.295 ms total, 1,201.761 ms wait. HTTP 500: 3.182 ms. Failed/aborted requests retain status/time `-1` and `net::ERR_EMPTY_RESPONSE` / `net::ERR_ABORTED` respectively.
+
+## Test-result and visual captures
+
+All captures below were made on 2026-10-25 using installed Playwright 1.56.1. They are real recorded outputs, not invented test outcomes. The temporary JavaScript producers are not shipped as repository tooling.
+
+`results-playwright-1.56.json` comes from seven actual tests and eleven attempts: two expected, three unexpected, one flaky retry recovery, and one skipped. The cases include an expected failure, an unexpected pass, an assertion failure, and a timeout. The Playwright process exited 1. After correcting the three unexpected cases, `results-playwright-1.56-pass.json` records seven tests/eight attempts: five expected, zero unexpected, one flaky, one skipped; the process exited 0. Minimized fixtures retain outcomes, retry numbers, durations and diagnostic messages; unused reporter fields are omitted and machine-specific paths/source import paths are redacted.
+
+| Capture | Original JSON SHA-256 | Fixture SHA-256 |
+| --- | --- | --- |
+| Failing run | `f89c661800c703ebb2606532a1ecc1d8b6e1fad6bf36addb5043eb5501dc0b19` | `6d936d2a6893e54528a60f2961d081db1792b633b88f57768bc92532719879be` |
+| Passing run | `a1e1acfcb2aa4bf171ed13df266e103961b9f4a9cd1cb0c784c83f4d359db8fc` | `cfd4f919b596368b8f0e86a7a6fe8bd5f3466d848ccadf2fac19bcf8f0069d3f` |
+
+`browser-visual.zip` retains two byte-original records from a fresh Chromium capture: the final screencast frame and the DOM snapshot after a button click, plus its original 8,776-byte JPEG. The 619-byte trace preserves original event values; ZIP metadata was rebuilt. Original archive SHA-256: `4c03b1d1b7cdf563883f6c3ed1e81f33834cbed89a92c840a88471587cfc36e3`; minimized archive SHA-256: `3088593e3a5ab869e180f479e76f25253df4c160d1b803e8e1ae1b6c64bc97f1`.
+
+`browser-console.trace` retains the two byte-original console-error/page-error records from that same capture, including the producer's nested serialized exception shape. Fixture SHA-256: `de61ebf989cdf6dd3d47725507919bcdefac6fcdf6bb8baea98f30ab49766127`.
+
+`browser-review.zip` is a separate fresh loopback capture with a button-triggered 1,151.709 ms request, HTTP 503 response, console error and uncaught exception. It retains 28 original action/context/log/diagnostic lines and three resource snapshots (method/URL, status, timings, page reference and monotonic start). Network object syntax is rebuilt without headers/cookies/bodies; retained values are unchanged. Its real page IDs and clocks exercise action/request overlap through the CLI. Original archive SHA-256: `b8d40bd47749f911eafb23f11d0fa72342c0c33baf5e35ace7688e7031085f9a`; minimized archive SHA-256: `786a306bb7b6be6632700874eed42bb2e0a2d54389ec7c200f297d5f789c18ce`.

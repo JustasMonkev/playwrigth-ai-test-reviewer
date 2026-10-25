@@ -36,6 +36,8 @@ impl Analysis<'_> {
             .take()
             .or_else(|| event.stack.drain(..).next());
         Action {
+            call_id: event.call_id.clone(),
+            page_id: event.page_id.take(),
             action: name,
             selector: params.selector,
             location,
@@ -57,6 +59,7 @@ impl Analysis<'_> {
     }
 
     pub(super) fn finish(&mut self, mut action: Action, event: Event) {
+        self.record_temporal(&action, &event);
         let key = action
             .step_id
             .as_ref()
@@ -129,7 +132,17 @@ impl Analysis<'_> {
         if let Some(location) = &mut location {
             location.file = self.text(std::mem::take(&mut location.file));
         }
+        let call_id = action.call_id.filter(|id| {
+            if id.len() > self.limits.max_text {
+                self.report.truncated = true;
+                false
+            } else {
+                true
+            }
+        });
         let failure = Failure {
+            trace_entry: call_id.as_ref().map(|_| action.recording.entry),
+            call_id,
             identity,
             action: self.text(action.action),
             selector: action.selector.map(|selector| self.text(selector)),
@@ -141,6 +154,10 @@ impl Analysis<'_> {
         };
         let index = if let Some(index) = index {
             let previous = &mut self.report.failures[index];
+            if !action.test_level {
+                previous.call_id = failure.call_id;
+                previous.trace_entry = failure.trace_entry;
+            }
             previous.identity.location = failure
                 .identity
                 .location
