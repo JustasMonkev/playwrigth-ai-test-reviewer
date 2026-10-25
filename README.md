@@ -4,12 +4,18 @@
 
 ## Install
 
+### From Rust source
+
 Install the toolchain in `rust-toolchain.toml`, then:
 
 ```sh
 cargo install --locked --path .
 pw-review --help
 ```
+
+### Through npm
+
+The npm distribution uses a small Node launcher and platform-specific native optional packages. It requires Node.js 22+ and npm 11+, with no lifecycle scripts or runtime download. Manual staging, offline tarball installation, supported targets, and release instructions are in [npm distribution](docs/npm-distribution.md). Registry installation applies only after a matching release has been published.
 
 ## Agent workflow
 
@@ -131,6 +137,6 @@ rust/
 └── lib.rs        public analysis entry point
 ```
 
-The repository contains Rust source and Cargo tooling only. There is no web server, frontend dependency tree, or model-provider client. Screenshot/DOM interpretation remains outside the CLI; extraction is explicit and currently requires Unix for safe no-overwrite file creation.
+Analysis and publisher tooling are Rust; `npm/` contains the optional Node launcher and standalone packaging tests. There is no web server, frontend dependency tree, or model-provider client. Screenshot/DOM interpretation remains outside the CLI; extraction is explicit and currently requires Unix for safe no-overwrite file creation.
 
 Library callers can use `analyze(&Path, &Limits) -> Result<Report>` for one input or `analyze_all(&[PathBuf], &Limits) -> Result<Vec<Report>>` for a batch sharing byte, event, and retained-evidence budgets. Reports preserve input order. A batch fails on the first invalid or over-budget input without returning partial reports; separate inputs are not deduplicated against one another.
