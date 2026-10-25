@@ -15,8 +15,8 @@ fn parse(input: &[u8], limits: &Limits) -> Result<Report> {
         recognized: 0,
         completed_steps: HashMap::new(),
         last_error: None,
-        first_time: None,
-        last_time: None,
+        wall_time: TimeSpan::default(),
+        unanchored_time: TimeSpan::default(),
     };
     analysis.read_trace(input, Path::new(""))?;
     Ok(analysis.report)
@@ -171,8 +171,8 @@ fn trace_entry_duration_spans_overlapping_and_sequential_streams() {
         recognized: 0,
         completed_steps: HashMap::new(),
         last_error: None,
-        first_time: None,
-        last_time: None,
+        wall_time: TimeSpan::default(),
+        unanchored_time: TimeSpan::default(),
     };
     for (start, end) in [(10, 20), (12, 18), (22, 25)] {
         let input =

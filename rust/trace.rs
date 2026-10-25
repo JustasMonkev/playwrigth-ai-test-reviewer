@@ -79,6 +79,29 @@ struct Usage {
     failures: usize,
 }
 
+#[derive(Default)]
+struct TimeSpan {
+    first: Option<f64>,
+    last: Option<f64>,
+}
+
+impl TimeSpan {
+    fn include(&mut self, time: f64) -> Result<()> {
+        if !time.is_finite() {
+            bail!("Trace timestamps exceed the supported duration range");
+        }
+        self.first = Some(self.first.map_or(time, |old| old.min(time)));
+        self.last = Some(self.last.map_or(time, |old| old.max(time)));
+        Ok(())
+    }
+
+    fn duration(&self) -> f64 {
+        self.first
+            .zip(self.last)
+            .map_or(0.0, |(first, last)| last - first)
+    }
+}
+
 struct Analysis<'a> {
     limits: &'a Limits,
     usage: &'a mut Usage,
@@ -86,8 +109,8 @@ struct Analysis<'a> {
     recognized: usize,
     completed_steps: HashMap<(PathBuf, String), [VecDeque<Completion>; 2]>,
     last_error: Option<(String, Option<Location>)>,
-    first_time: Option<f64>,
-    last_time: Option<f64>,
+    wall_time: TimeSpan,
+    unanchored_time: TimeSpan,
 }
 
 pub fn analyze(path: &Path, limits: &Limits) -> Result<Report> {
@@ -129,8 +152,8 @@ fn analyze_one(path: &Path, limits: &Limits, usage: &mut Usage) -> Result<Report
         recognized: 0,
         completed_steps: HashMap::new(),
         last_error: None,
-        first_time: None,
-        last_time: None,
+        wall_time: TimeSpan::default(),
+        unanchored_time: TimeSpan::default(),
     };
     if is_zip || extension.eq_ignore_ascii_case("zip") {
         let mut archive = zip::ZipArchive::new(file).context("Invalid ZIP archive")?;
@@ -216,10 +239,7 @@ impl Analysis<'_> {
             let Some(mut event) = event else {
                 continue;
             };
-            for time in [event.start_time, event.end_time].into_iter().flatten() {
-                self.first_time = Some(self.first_time.map_or(time, |old| old.min(time)));
-                self.last_time = Some(self.last_time.map_or(time, |old| old.max(time)));
-            }
+            self.record_times(&event, recording.time_offset)?;
             match event.kind.as_str() {
                 "context-options" => {
                     recording.origin = match event.origin.as_deref() {
@@ -285,10 +305,7 @@ impl Analysis<'_> {
                     {
                         bail!("action event has no supported action metadata");
                     }
-                    for time in [event.start_time, event.end_time].into_iter().flatten() {
-                        self.first_time = Some(self.first_time.map_or(time, |old| old.min(time)));
-                        self.last_time = Some(self.last_time.map_or(time, |old| old.max(time)));
-                    }
+                    self.record_times(&event, recording.time_offset)?;
                     let action = self.action(&mut event, &recording);
                     self.finish(action, event);
                 }
@@ -321,10 +338,21 @@ impl Analysis<'_> {
         }
         self.usage.bytes += frames.bytes;
         self.report.summary.incomplete += actions.len();
-        if let (Some(first), Some(last)) = (self.first_time, self.last_time) {
-            self.report.summary.duration_ms = (last - first).max(0.0);
-            if !self.report.summary.duration_ms.is_finite() {
-                bail!("Trace timestamps exceed the supported duration range");
+        self.report.summary.duration_ms = self
+            .wall_time
+            .duration()
+            .max(self.unanchored_time.duration());
+        if !self.report.summary.duration_ms.is_finite() {
+            bail!("Trace timestamps exceed the supported duration range");
+        }
+        Ok(())
+    }
+
+    fn record_times(&mut self, event: &Event, offset: Option<f64>) -> Result<()> {
+        for time in [event.start_time, event.end_time].into_iter().flatten() {
+            match offset {
+                Some(offset) => self.wall_time.include(time + offset)?,
+                None => self.unanchored_time.include(time)?,
             }
         }
         Ok(())

@@ -90,6 +90,12 @@ fn captured_failure_comparison_has_one_persistent_failure() {
 }
 
 #[test]
+fn remote_clock_fixture_has_seconds_not_hours_of_duration() {
+    let report = analyze(&fixture("trace-remote-time-diff.zip"), &Limits::default()).unwrap();
+    assert!((report.summary.duration_ms - 7_844.123).abs() < 0.001);
+}
+
+#[test]
 fn real_trace_cli_emits_bounded_json_and_opt_in_failure_status() {
     let output = Command::new(env!("CARGO_BIN_EXE_pw-review"))
         .args(["analyze", "--fail-on-error"])

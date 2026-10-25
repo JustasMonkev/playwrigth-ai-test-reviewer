@@ -11,7 +11,7 @@ cargo test --locked
 cargo build --locked --release
 ```
 
-The final checks pass 58 Rust tests covering parser and report units, CLI contracts, nested GitHub artifacts, and nine captured real traces. The GitHub workflow runs the Cargo gates on Linux and macOS.
+The final checks pass 62 Rust tests covering parser and report units, CLI contracts, nested GitHub artifacts, and nine captured real traces. The GitHub workflow runs the Cargo gates on Linux and macOS.
 
 ## Review regressions
 
@@ -30,6 +30,7 @@ The new regression tests were run against the previous implementation before the
 | Detail caps zero/one preserve totals and per-report truncation | `github_retained_failure_budget_preserves_totals_and_truncation` |
 | Comparison uses raw identity even with zero/default text caps or merged browser/runner evidence | `cargo test --locked --test comparison_contract` |
 | Console records cannot be decoded as action locations, but still consume event budget | `console_and_non_action_records_are_ignored_but_count_toward_limits` |
+| Remote clocks produce a normalized duration, including legacy metadata | `cargo test --locked --test duration_contract`, `remote_clock_fixture_has_seconds_not_hours_of_duration` |
 
 The later comparison regressions failed before the fix: different identities collided after truncation, and identical identities stopped matching across different text caps. Raw action/selector/location identities now remain private and are omitted from JSON. Their merge precedence matches retained evidence. This changes Rust struct-literal construction of `Failure`; library consumers obtain failures through `analyze`/`analyze_all`. JSON field names and schema remain unchanged. Console-location regression also failed with `missing field file` before event-type dispatch was moved ahead of action-field decoding. Ignored records still consume byte/event budgets, and malformed JSON remains an error.
 
@@ -104,6 +105,6 @@ Single-input analysis and artifact batches share the same parser. Artifact extra
 
 Runner/browser correlation uses step ID within an archive directory, opposite recorded stream origins, compatible raw selector/location evidence when both are supplied, and nested action intervals normalized through `wallTime - monotonicTime`. A one-millisecond allowance covers the header's integer wall-clock resolution. Missing or inconsistent cross-stream clocks conservatively leave actions separate. Unmatched completions are queued separately by browser/runner role for each scoped step ID. Matching consumes only its compatible candidate; unrelated candidates cannot evict one another. Each completed action contributes at most one pending candidate, so candidate storage is bounded by the input and event limits. Only opposite-role candidates are scanned; deque removal avoids shifting the remaining queue when the first candidate matches. Matching is not a constant-time guarantee for adversarially reused IDs. Raw selectors and source locations remain internal correlation identity regardless of `--max-text`; truncation applies when building retained failures. Standalone errors cannot arm the duplicate-action-error suppression state, and stream boundaries clear that state.
 
-Summary duration still spans the timestamps supplied by the trace. It is not a synchronized wall-clock measurement for recordings from different hosts. Screenshot and DOM interpretation remain the job of Playwright Trace Viewer or a separate visual agent.
+Summary duration spans action timestamps normalized with each stream's `wallTime - monotonicTime` offset, including legacy action metadata. The captured remote-clock fixture previously reported 57,978,221.456 ms; it now reports approximately 7,844.123 ms. Its regression and three clock-boundary tests failed before the fix and pass after it. Raw timestamps from streams without a usable anchor remain in a separate span; they are never compared directly against epoch timestamps. If both domains exist, the larger of their spans is reported because their relative placement cannot be established. Fully unanchored inputs retain the previous raw-span behavior. Header wall clocks still need to be accurate for cross-host wall-time comparisons; missing anchors cannot establish cross-host elapsed time. Non-finite normalized timestamps or durations are rejected. Screenshot and DOM interpretation remain the job of Playwright Trace Viewer or a separate visual agent.
 
 Rust received a manual lazy-clean pass plus rustfmt and Clippy. No JavaScript/TypeScript remains for the language-specific checker to inspect. The crate forbids authored unsafe code and uses no async runtime, HTTP client, provider SDK, database, or daemon.
