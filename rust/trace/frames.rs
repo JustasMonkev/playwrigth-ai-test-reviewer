@@ -3,9 +3,9 @@ use std::io::{BufRead, BufReader, Read};
 
 const MAX_EVENT_BYTES: usize = 8 * 1024 * 1024;
 
-pub(super) struct Frames<R> {
+pub(crate) struct Frames<R> {
     reader: BufReader<R>,
-    pub(super) bytes: u64,
+    pub(crate) bytes: u64,
     max_bytes: u64,
     started: bool,
     array: bool,
@@ -14,7 +14,7 @@ pub(super) struct Frames<R> {
 }
 
 impl<R: Read> Frames<R> {
-    pub(super) fn new(reader: R, max_bytes: u64) -> Self {
+    pub(crate) fn new(reader: R, max_bytes: u64) -> Self {
         Self {
             reader: BufReader::new(reader),
             bytes: 0,
@@ -58,7 +58,7 @@ impl<R: Read> Frames<R> {
         Ok(None)
     }
 
-    pub(super) fn next(&mut self) -> Result<Option<Vec<u8>>> {
+    pub(crate) fn next(&mut self) -> Result<Option<Vec<u8>>> {
         if self.done {
             return Ok(None);
         }

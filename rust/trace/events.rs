@@ -15,6 +15,7 @@ pub(super) struct Event {
     pub(super) origin: Option<String>,
     pub(super) wall_time: Option<f64>,
     pub(super) monotonic_time: Option<f64>,
+    pub(super) page_id: Option<String>,
     pub(super) call_id: Option<String>,
     pub(super) step_id: Option<String>,
     pub(super) title: Option<String>,

@@ -1,6 +1,7 @@
 mod actions;
 mod events;
-mod frames;
+pub(crate) mod frames;
+mod temporal;
 #[cfg(test)]
 mod tests;
 
@@ -23,6 +24,9 @@ pub struct Limits {
     pub max_failures: usize,
     pub max_text: usize,
     pub max_network: usize,
+    pub max_console: usize,
+    pub max_endpoints: usize,
+    pub max_evidence: usize,
     pub slow_ms: u64,
 }
 
@@ -34,12 +38,17 @@ impl Default for Limits {
             max_failures: 20,
             max_text: 2_048,
             max_network: 20,
+            max_console: 20,
+            max_endpoints: 20,
+            max_evidence: 100,
             slow_ms: 1_000,
         }
     }
 }
 
 struct Action {
+    call_id: Option<String>,
+    page_id: Option<String>,
     action: String,
     selector: Option<String>,
     location: Option<Location>,
@@ -72,6 +81,7 @@ enum Origin {
 #[derive(Clone, Default)]
 struct Recording {
     scope: PathBuf,
+    stream: String,
     entry: usize,
     origin: Option<Origin>,
     time_offset: Option<f64>,
@@ -83,6 +93,8 @@ struct Usage {
     events: usize,
     failures: usize,
     network: usize,
+    console: usize,
+    endpoints: usize,
 }
 
 #[derive(Default)]
@@ -118,6 +130,8 @@ struct Analysis<'a> {
     wall_time: TimeSpan,
     unanchored_time: TimeSpan,
     network: NetworkAccumulator,
+    diagnostics: crate::diagnostics::Diagnostics,
+    temporal: crate::temporal::Temporal,
 }
 
 pub fn analyze(path: &Path, limits: &Limits) -> Result<Report> {
@@ -146,8 +160,12 @@ fn analyze_one(path: &Path, limits: &Limits, usage: &mut Usage) -> Result<Report
         .extension()
         .and_then(|value| value.to_str())
         .unwrap_or("");
-    let network = NetworkAccumulator::new(limits, usage.network);
+    let network = NetworkAccumulator::new(limits, usage.network, usage.endpoints);
+    let diagnostics =
+        crate::diagnostics::Diagnostics::new(limits.max_console.saturating_sub(usage.console));
     let mut analysis = Analysis {
+        diagnostics,
+        temporal: crate::temporal::Temporal::new(limits.max_network.saturating_mul(4)),
         network,
         limits,
         usage,
@@ -158,6 +176,7 @@ fn analyze_one(path: &Path, limits: &Limits, usage: &mut Usage) -> Result<Report
             failures: Vec::new(),
             truncated: false,
             network: crate::NetworkReport::default(),
+            console: crate::ConsoleReport::default(),
         },
         recognized: 0,
         completed_steps: HashMap::new(),
@@ -205,11 +224,18 @@ fn analyze_one(path: &Path, limits: &Limits, usage: &mut Usage) -> Result<Report
             }
             if name.ends_with(".network") {
                 analysis
-                    .read_network(entry)
+                    .read_network(
+                        entry,
+                        &Path::new(&name).with_extension("").to_string_lossy(),
+                    )
                     .with_context(|| format!("Invalid network entry {name}"))?;
             } else {
                 analysis
-                    .read_trace(entry, Path::new(&name).parent().unwrap_or(Path::new("")))
+                    .read_trace(
+                        entry,
+                        Path::new(&name).parent().unwrap_or(Path::new("")),
+                        &Path::new(&name).with_extension("").to_string_lossy(),
+                    )
                     .with_context(|| format!("Invalid trace entry {name}"))?;
             }
         }
@@ -221,14 +247,18 @@ fn analyze_one(path: &Path, limits: &Limits, usage: &mut Usage) -> Result<Report
             bail!("Unsupported input format; expected .zip, .trace, .network, .json, or .jsonl");
         }
         if extension.eq_ignore_ascii_case("network") {
-            analysis.read_network(file)?;
+            analysis.read_network(file, "")?;
         } else {
             analysis
-                .read_trace(file, Path::new(""))
+                .read_trace(file, Path::new(""), "")
                 .with_context(|| format!("Invalid trace {}", path.display()))?;
         }
     }
-    analysis.report.network = analysis.network.finish();
+    analysis.report.network = analysis.network.finish(&analysis.temporal);
+    analysis.report.console = analysis.diagnostics.finish();
+    analysis.usage.console += analysis.report.console.evidence.len();
+    analysis.usage.endpoints += analysis.report.network.endpoints.len();
+    analysis.report.truncated |= analysis.report.console.truncated;
     analysis.usage.network += analysis.report.network.evidence.len();
     analysis.report.truncated |= analysis.report.network.truncated;
     if analysis.recognized == 0 && analysis.report.network.absent() {
@@ -238,7 +268,7 @@ fn analyze_one(path: &Path, limits: &Limits, usage: &mut Usage) -> Result<Report
 }
 
 impl Analysis<'_> {
-    fn read_network(&mut self, reader: impl Read) -> Result<()> {
+    fn read_network(&mut self, reader: impl Read, stream: &str) -> Result<()> {
         self.network.start_log();
         let mut frames = Frames::new(
             reader,
@@ -248,7 +278,7 @@ impl Analysis<'_> {
             if self.usage.events >= self.limits.max_events {
                 bail!("Trace exceeds max_events ({})", self.limits.max_events);
             }
-            self.network.read(&frame, self.limits.max_text)?;
+            self.network.read(&frame, self.limits.max_text, stream)?;
             self.usage.events += 1;
             self.report.summary.events += 1;
         }
@@ -256,7 +286,7 @@ impl Analysis<'_> {
         Ok(())
     }
 
-    fn read_trace(&mut self, reader: impl Read, scope: &Path) -> Result<()> {
+    fn read_trace(&mut self, reader: impl Read, scope: &Path, stream: &str) -> Result<()> {
         self.last_error = None;
         let mut frames = Frames::new(
             reader,
@@ -267,12 +297,16 @@ impl Analysis<'_> {
         self.report.summary.trace_entries += 1;
         let mut recording = Recording {
             scope: scope.to_owned(),
+            stream: stream.into(),
             entry: self.report.summary.trace_entries,
             ..Recording::default()
         };
         while let Some(frame) = frames.next()? {
             if self.usage.events >= self.limits.max_events {
                 bail!("Trace exceeds max_events ({})", self.limits.max_events);
+            }
+            if self.diagnostics.read(&frame, self.limits.max_text)? {
+                self.recognized += 1;
             }
             let event = Event::decode(&frame).with_context(|| {
                 format!("Malformed JSON at event {}", self.report.summary.events + 1)
@@ -287,7 +321,7 @@ impl Analysis<'_> {
                     self.network.start_log();
                     has_network = true;
                 }
-                self.network.read(&frame, self.limits.max_text)?;
+                self.network.read(&frame, self.limits.max_text, stream)?;
                 continue;
             }
             self.record_times(&event, recording.time_offset)?;
@@ -318,7 +352,8 @@ impl Analysis<'_> {
                         bail!("Duplicate before event for callId {id}");
                     }
                     self.report.summary.actions += 1;
-                    let action = self.action(&mut event, &recording);
+                    let mut action = self.action(&mut event, &recording);
+                    action.call_id = Some(id.clone());
                     actions.insert(id, action);
                 }
                 "after" => {
@@ -330,10 +365,11 @@ impl Analysis<'_> {
                     if !actions.contains_key(&id) && event.error.is_none() {
                         bail!("after event has no matching before event or recorded error");
                     }
-                    let action = actions.remove(&id).unwrap_or_else(|| {
+                    let mut action = actions.remove(&id).unwrap_or_else(|| {
                         self.report.summary.actions += 1;
                         self.action(&mut event, &recording)
                     });
+                    action.call_id = Some(id);
                     self.finish(action, event);
                 }
                 "log" => {
