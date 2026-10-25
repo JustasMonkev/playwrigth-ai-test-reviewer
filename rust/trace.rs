@@ -4,6 +4,7 @@ mod frames;
 #[cfg(test)]
 mod tests;
 
+use crate::network::NetworkAccumulator;
 use crate::{Location, Report, Summary};
 use anyhow::{Context, Result, bail};
 use events::{Event, TraceError};
@@ -21,6 +22,8 @@ pub struct Limits {
     pub max_events: usize,
     pub max_failures: usize,
     pub max_text: usize,
+    pub max_network: usize,
+    pub slow_ms: u64,
 }
 
 impl Default for Limits {
@@ -30,6 +33,8 @@ impl Default for Limits {
             max_events: 1_000_000,
             max_failures: 20,
             max_text: 2_048,
+            max_network: 20,
+            slow_ms: 1_000,
         }
     }
 }
@@ -77,6 +82,7 @@ struct Usage {
     bytes: u64,
     events: usize,
     failures: usize,
+    network: usize,
 }
 
 #[derive(Default)]
@@ -111,6 +117,7 @@ struct Analysis<'a> {
     last_error: Option<(String, Option<Location>)>,
     wall_time: TimeSpan,
     unanchored_time: TimeSpan,
+    network: NetworkAccumulator,
 }
 
 pub fn analyze(path: &Path, limits: &Limits) -> Result<Report> {
@@ -139,7 +146,9 @@ fn analyze_one(path: &Path, limits: &Limits, usage: &mut Usage) -> Result<Report
         .extension()
         .and_then(|value| value.to_str())
         .unwrap_or("");
+    let network = NetworkAccumulator::new(limits, usage.network);
     let mut analysis = Analysis {
+        network,
         limits,
         usage,
         report: Report {
@@ -148,6 +157,7 @@ fn analyze_one(path: &Path, limits: &Limits, usage: &mut Usage) -> Result<Report
             summary: Summary::default(),
             failures: Vec::new(),
             truncated: false,
+            network: crate::NetworkReport::default(),
         },
         recognized: 0,
         completed_steps: HashMap::new(),
@@ -165,22 +175,23 @@ fn analyze_one(path: &Path, limits: &Limits, usage: &mut Usage) -> Result<Report
             .collect::<Vec<_>>();
         let mut names: Vec<_> = all_names
             .iter()
-            .filter(|name| name.ends_with(".trace"))
+            .filter(|name| name.ends_with(".trace") || name.ends_with(".network"))
             .cloned()
             .collect();
-        if names.is_empty() {
+        if !names.iter().any(|name| name.ends_with(".trace")) {
             names = all_names
                 .iter()
                 .filter(|name| {
-                    !name.starts_with("resources/")
-                        && (name.ends_with(".json") || name.ends_with(".jsonl"))
+                    name.ends_with(".network")
+                        || (!name.starts_with("resources/")
+                            && (name.ends_with(".json") || name.ends_with(".jsonl")))
                 })
                 .cloned()
                 .collect();
         }
         names.sort();
         if names.is_empty() {
-            bail!("ZIP archive contains no .trace, .json, or .jsonl event entries");
+            bail!("ZIP archive contains no .trace, .network, .json, or .jsonl event entries");
         }
         for name in names {
             let entry = archive
@@ -192,28 +203,59 @@ fn analyze_one(path: &Path, limits: &Limits, usage: &mut Usage) -> Result<Report
                     limits.max_bytes
                 );
             }
-            analysis
-                .read_trace(entry, Path::new(&name).parent().unwrap_or(Path::new("")))
-                .with_context(|| format!("Invalid trace entry {name}"))?;
+            if name.ends_with(".network") {
+                analysis
+                    .read_network(entry)
+                    .with_context(|| format!("Invalid network entry {name}"))?;
+            } else {
+                analysis
+                    .read_trace(entry, Path::new(&name).parent().unwrap_or(Path::new("")))
+                    .with_context(|| format!("Invalid trace entry {name}"))?;
+            }
         }
     } else {
-        if !["trace", "json", "jsonl"]
+        if !["trace", "json", "jsonl", "network"]
             .iter()
             .any(|supported| extension.eq_ignore_ascii_case(supported))
         {
-            bail!("Unsupported input format; expected .zip, .trace, .json, or .jsonl");
+            bail!("Unsupported input format; expected .zip, .trace, .network, .json, or .jsonl");
         }
-        analysis
-            .read_trace(file, Path::new(""))
-            .with_context(|| format!("Invalid trace {}", path.display()))?;
+        if extension.eq_ignore_ascii_case("network") {
+            analysis.read_network(file)?;
+        } else {
+            analysis
+                .read_trace(file, Path::new(""))
+                .with_context(|| format!("Invalid trace {}", path.display()))?;
+        }
     }
-    if analysis.recognized == 0 {
+    analysis.report.network = analysis.network.finish();
+    analysis.usage.network += analysis.report.network.evidence.len();
+    analysis.report.truncated |= analysis.report.network.truncated;
+    if analysis.recognized == 0 && analysis.report.network.absent() {
         bail!("Input contains no supported Playwright action events");
     }
     Ok(analysis.report)
 }
 
 impl Analysis<'_> {
+    fn read_network(&mut self, reader: impl Read) -> Result<()> {
+        self.network.start_log();
+        let mut frames = Frames::new(
+            reader,
+            self.limits.max_bytes.saturating_sub(self.usage.bytes),
+        );
+        while let Some(frame) = frames.next()? {
+            if self.usage.events >= self.limits.max_events {
+                bail!("Trace exceeds max_events ({})", self.limits.max_events);
+            }
+            self.network.read(&frame, self.limits.max_text)?;
+            self.usage.events += 1;
+            self.report.summary.events += 1;
+        }
+        self.usage.bytes += frames.bytes;
+        Ok(())
+    }
+
     fn read_trace(&mut self, reader: impl Read, scope: &Path) -> Result<()> {
         self.last_error = None;
         let mut frames = Frames::new(
@@ -221,6 +263,7 @@ impl Analysis<'_> {
             self.limits.max_bytes.saturating_sub(self.usage.bytes),
         );
         let mut actions = HashMap::<String, Action>::new();
+        let mut has_network = false;
         self.report.summary.trace_entries += 1;
         let mut recording = Recording {
             scope: scope.to_owned(),
@@ -239,6 +282,14 @@ impl Analysis<'_> {
             let Some(mut event) = event else {
                 continue;
             };
+            if event.kind == "resource-snapshot" {
+                if !has_network {
+                    self.network.start_log();
+                    has_network = true;
+                }
+                self.network.read(&frame, self.limits.max_text)?;
+                continue;
+            }
             self.record_times(&event, recording.time_offset)?;
             match event.kind.as_str() {
                 "context-options" => {

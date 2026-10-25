@@ -3,6 +3,7 @@ use super::*;
 fn parse(input: &[u8], limits: &Limits) -> Result<Report> {
     let mut usage = Usage::default();
     let mut analysis = Analysis {
+        network: NetworkAccumulator::new(limits, 0),
         limits,
         usage: &mut usage,
         report: Report {
@@ -11,6 +12,7 @@ fn parse(input: &[u8], limits: &Limits) -> Result<Report> {
             summary: Summary::default(),
             failures: Vec::new(),
             truncated: false,
+            network: crate::NetworkReport::default(),
         },
         recognized: 0,
         completed_steps: HashMap::new(),
@@ -159,6 +161,7 @@ fn trace_entry_duration_spans_overlapping_and_sequential_streams() {
     let limits = Limits::default();
     let mut usage = Usage::default();
     let mut analysis = Analysis {
+        network: NetworkAccumulator::new(&limits, 0),
         limits: &limits,
         usage: &mut usage,
         report: Report {
@@ -167,6 +170,7 @@ fn trace_entry_duration_spans_overlapping_and_sequential_streams() {
             summary: Summary::default(),
             failures: Vec::new(),
             truncated: false,
+            network: crate::NetworkReport::default(),
         },
         recognized: 0,
         completed_steps: HashMap::new(),

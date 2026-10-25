@@ -39,6 +39,10 @@ impl Event {
     pub(super) fn decode(frame: &[u8]) -> serde_json::Result<Option<Self>> {
         let record: RecordType = serde_json::from_slice(frame)?;
         match record.kind.as_str() {
+            "resource-snapshot" => Ok(Some(Self {
+                kind: record.kind,
+                ..Self::default()
+            })),
             "context-options" | "before" | "after" | "log" | "action" | "error" => {
                 serde_json::from_slice(frame).map(Some)
             }

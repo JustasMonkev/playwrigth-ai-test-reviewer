@@ -12,7 +12,7 @@ The other six ZIPs derive from `tests/assets/` of [microsoft/playwright](https:/
 
 ## Minimization and provenance
 
-Only `.trace` entries are retained. Within each stream, the original bytes of `context-options`, `before`, `after`, `action`, `log`, and `error` records remain unchanged and in order. Resources, source files, screenshots, snapshots, network records, and unrelated event types are omitted. ZIP metadata is rebuilt deterministically. Record counts therefore differ from the full originals; no retained event values or action IDs were rewritten.
+For the nine action-only fixtures above, only `.trace` entries are retained. Within each stream, the original bytes of `context-options`, `before`, `after`, `action`, `log`, and `error` records remain unchanged and in order. Resources, source files, screenshots, snapshots, network records, and unrelated event types are omitted. ZIP metadata is rebuilt deterministically. Record counts therefore differ from the full originals; no retained event values or action IDs were rewritten.
 
 Original archive SHA-256 values:
 
@@ -27,3 +27,14 @@ Original archive SHA-256 values:
 | `trace-1.37.zip` | `e8e846902f58089d8b96e4349ae63fa4bbd9cdbb721ac0f29e1de6253ea645df` |
 | `trace-library-1.46.zip` | `606b18674e2ef8bad012d98dd34ac371a6c9c36111af0686f813ffc2c671b48b` |
 | `trace-remote-time-diff.zip` | `cf72b06f4c1c289214a826cbf8d012cadc7f73090a604d2c36c61a0db5d272ac` |
+
+## Network capture
+
+`browser-network.zip` is a real loopback-only Playwright 1.56.1 / Chromium 156.0.8078.4 capture made on 2026-10-25 with tracing snapshots enabled, screenshots and sources disabled. A temporary HTTP server served a normal page, fast 200, delayed 200, HTTP 500, connection termination, and aborted request. This is not a Grafana trace. `tests/network_contract.rs` replays it with Cargo alone.
+
+The ZIP retains the original context-options and goto before/after lines (source trace lines 1, 5, 8), plus all six resource-snapshot records. Network records retain request method/URL, response status/failure text, total time, timing phases, page reference, and timestamps. Retained JSON value tokens were verified byte-identical to the original; surrounding object syntax was reconstructed. Headers, cookies, content references, resource bodies, snapshots, source, stacks, and console records were removed. The temporary generator is not shipped.
+
+- Original ZIP SHA-256: `58a62f2bc0aeaaf5249f65761f454e401de18bb4dfc37d1b425061c06b76c91f`
+- Minimized ZIP SHA-256: `9370ad603004e1b42c3a71573e20f2e76b65b8eeb43125575795d455165e39f8`
+- Retained `.trace` bytes: 773; `.network` bytes: 2,115.
+- Slow 200: 1,202.295 ms total, 1,201.761 ms wait. HTTP 500: 3.182 ms. Failed/aborted requests retain status/time `-1` and `net::ERR_EMPTY_RESPONSE` / `net::ERR_ABORTED` respectively.
