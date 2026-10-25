@@ -1,6 +1,6 @@
 # Playwright AI Test Reviewer
 
-`pw-review` turns Playwright traces into small, deterministic evidence reports for coding agents. Written in Rust; local analysis needs no browser, Node runtime, API key, or model call. The existing [web viewer](docs/legacy-web.md) remains available separately.
+`pw-review` turns Playwright traces into small, deterministic evidence reports for coding agents. Written in Rust; local analysis needs no browser, Node runtime, API key, or model call.
 
 ## Install
 
@@ -32,7 +32,7 @@ Authenticate with `gh auth login`, then provide an explicit repository, run ID, 
 pw-review github 123456789 --repo owner/repo --artifact playwright-report
 ```
 
-The command retrieves the named artifact through the installed GitHub CLI, analyzes its trace ZIPs, and prints a report. It does not post comments, create reviews, or modify the repository. Downloads and processing are bounded; temporary files are cleaned up. Artifacts must be available to the authenticated account and not expired.
+The command retrieves the named artifact through the installed GitHub CLI, analyzes its trace ZIPs, and prints a report. Decompressed bytes, parsed events, and retained failure details share one budget across every trace in the artifact; failure totals are still counted after the detail cap is reached. It does not post comments, create reviews, or modify the repository. Downloads and processing are bounded; temporary files are cleaned up. Artifacts must be available to the authenticated account and not expired.
 
 For CI, capture the exit status separately from the JSON:
 
@@ -50,7 +50,9 @@ Operational errors are JSON on stderr. `--help` and `--version` are plain text.
 
 ## Input and output contracts
 
-Supported inputs include Playwright trace ZIPs and raw trace event streams. Events may be newline-delimited, concatenated JSON objects, or a JSON array. A ZIP can contain multiple `.trace` streams. Invalid JSON, unsupported content, corrupt archives, and resource-limit violations return errors rather than a fabricated successful test result.
+Supported inputs include Playwright trace ZIPs and raw trace event streams. Events may be newline-delimited, concatenated JSON objects, or a JSON array. A ZIP can contain multiple `.trace` streams. Independent streams retain their own action and error state. Invalid JSON, unsupported content, corrupt archives, and resource-limit violations return errors rather than a fabricated successful test result.
+
+Browser and test-runner copies of a step are merged only when step ID, recording scope, stream roles, timing, and available selector/location evidence agree. Streams in different archive directories are separate recordings. Clock metadata is normalized for matching, with a one-millisecond allowance for integer wall-clock rounding. Ambiguous or missing cross-stream timing evidence leaves actions distinct. A runner error immediately repeating its failed action is counted once; identical standalone errors are independent.
 
 Reports use `schema_version: 1`. Summary counts describe **trace actions**, not test-run pass/fail totals; an incomplete action is not a passed action. A trace containing no observed failure is not proof the entire test suite passed. Comparison matches failures by action, selector, and source location, not ephemeral call IDs or archive size. Identical repeated failures are matched by occurrence; changed/missing source metadata can prevent a match.
 
@@ -64,7 +66,7 @@ Reports use `schema_version: 1`. Summary counts describe **trace actions**, not 
 | `--max-text` | Text detail length |
 | `--max-output-bytes` | Serialized output budget; oversized output fails rather than emitting broken JSON |
 
-See `pw-review --help` for defaults and GitHub-specific bounds. Limits are operational safeguards, not a claim of constant memory: ZIP metadata and active action state still consume memory within the input limits. The crate forbids unsafe Rust in project code; dependencies are separately maintained.
+See `pw-review --help` for defaults and GitHub-specific bounds. Limits are operational safeguards, not a claim of constant memory: ZIP metadata, active actions, and unmatched correlation candidates still consume memory within the input limits. The crate forbids unsafe Rust in project code; dependencies are separately maintained.
 
 ## Development
 
@@ -75,15 +77,22 @@ cargo test --locked
 cargo build --locked --release
 ```
 
-The GitHub workflow runs these on Linux and macOS. GitHub artifact retrieval requires a Unix host for bounded subprocess-tree cleanup. Local execution evidence and limitations are recorded in [validation](docs/validation.md).
+The GitHub workflow runs these on Linux and macOS. GitHub artifact retrieval requires a Unix host for bounded subprocess-tree cleanup. The test suite includes nine small captured trace fixtures, so compatibility checks need only Cargo. Local execution evidence and limitations are recorded in [validation](docs/validation.md).
 
 ```text
 rust/
 ├── main.rs       CLI and output contract
 ├── github.rs     bounded authenticated artifact retrieval
-├── trace.rs      trace parsing and action correlation
+├── trace.rs      archive/stream parsing and shared usage budgets
+├── trace/
+│   ├── actions.rs action correlation and compact evidence
+│   ├── events.rs  supported event wire types
+│   ├── frames.rs  bounded JSON framing
+│   └── tests.rs   parser unit tests
 ├── report.rs     compact report and semantic comparison
 └── lib.rs        public analysis entry point
 ```
 
-The legacy React app remains in `src/` and `utils/`; its npm dependencies are not needed to build or run the CLI. Browser-based screenshot comparison and Gemini calls have not been ported into the headless CLI.
+The repository contains Rust source and Cargo tooling only. There is no web server, frontend dependency tree, or model-provider client. Screenshot/DOM interpretation remains outside the CLI.
+
+Library callers can use `analyze(&Path, &Limits) -> Result<Report>` for one input or `analyze_all(&[PathBuf], &Limits) -> Result<Vec<Report>>` for a batch sharing byte, event, and retained-evidence budgets. Reports preserve input order. A batch fails on the first invalid or over-budget input without returning partial reports; separate inputs are not deduplicated against one another.

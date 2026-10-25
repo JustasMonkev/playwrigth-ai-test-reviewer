@@ -2,7 +2,7 @@ mod github;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use playwright_ai_test_reviewer::{Limits, analyze, compare};
+use playwright_ai_test_reviewer::{Limits, analyze, analyze_all, compare};
 use serde::Serialize;
 use serde_json::json;
 use std::io::{self, Write};
@@ -161,9 +161,14 @@ fn run(cli: &Cli) -> Result<bool> {
                 github::download(repo, *run_id, artifact, cli.max_bytes, *timeout_secs)?;
             let mut reports = Vec::new();
             let mut failed = false;
-            for (name, path) in &downloaded.traces {
-                let mut report = analyze(path, &limits)
-                    .with_context(|| format!("cannot analyze artifact trace {name}"))?;
+            let paths = downloaded
+                .traces
+                .iter()
+                .map(|(_, path)| path.clone())
+                .collect::<Vec<_>>();
+            let analyzed =
+                analyze_all(&paths, &limits).context("cannot analyze artifact traces")?;
+            for ((name, _), mut report) in downloaded.traces.iter().zip(analyzed) {
                 report.source = name.clone();
                 failed |= report.has_failures();
                 reports.push(json!({"trace":name,"report":report}));

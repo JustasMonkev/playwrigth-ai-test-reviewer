@@ -1,6 +1,6 @@
 # Rust CLI validation
 
-Validation host: macOS arm64, Rust/Cargo 1.97.0, Node 26.5.0. The Rust implementation and independent review used GPT-6 Astra at xhigh; a separate GPT-6.1 Sol xhigh worker wrote and ran integration/browser checks. These are agent-assisted engineering checks, not runtime model API benchmarks.
+Validation host: macOS arm64, Rust/Cargo 1.97.0. The repository builds and tests with Cargo only. No Node runtime, browser, API key, or network access is needed for the checked-in integration fixtures.
 
 ## Rerunnable checks
 
@@ -9,68 +9,67 @@ cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 cargo build --locked --release
-node scripts/validate-desktop.mjs
 ```
 
-For the browser check, explicitly set `PW_REVIEW_PLAYWRIGHT` to an installed `@playwright/test` package directory. Optional variables: `PW_REVIEW_BROWSER` for a Chromium executable, `PW_REVIEW_CLI` for the built binary, `PW_REVIEW_PLAYWRIGHT_REPO` and `PW_REVIEW_GRAFANA_REPO` for checkout paths. The script creates its fixtures in a temporary directory and removes them; it does not install dependencies or modify either repository.
+The final checks pass 54 Rust tests covering parser and report units, CLI contracts, nested GitHub artifacts, and nine captured real traces. The GitHub workflow runs the Cargo gates on Linux and macOS.
 
-The final local gate passed 40 Rust tests (9 core, 6 CLI unit, 25 integration), formatting, warning-free Clippy, release build, and the JS checker.
+## Review regressions
 
-## Behavior coverage
+The new regression tests were run against the previous implementation before the fixes. Five tests failed as expected: reused step IDs lost an independent failure; repeated standalone errors lost a failure; two 600-event traces bypassed a 1,000-event artifact budget; compressed trace data bypassed the aggregate decompressed-byte budget; and a retained-detail cap of one produced two items across two traces. A related browser/runner preservation case passed before and after the fixes. Independent review then found that text truncation could alter semantic identity. Two further regression tests failed before moving selector/location truncation to the retained-output boundary, then passed: selector-prefix collisions no longer merge independent failures, and a truncated location no longer duplicates a related runner error. They cover text caps zero, one, and the default, including selectors with a shared prefix longer than the default cap. A further real-fixture regression combined two independent captured recordings with reused step IDs and grouped both browser streams before both runner streams. It reproduced 36 actions instead of 30 because an unrelated completion evicted a candidate still needed later. The fix keeps unmatched candidates by role and consumes only the compatible one.
 
-| Requirement or failure mode | Evidence |
+| Behavior | Rerunnable evidence |
 | --- | --- |
-| Compact JSON and exit codes | CLI integration tests; opt-in failure exit preserves the report |
-| Corrupt/missing/unsupported input | Parser and CLI tests require explicit errors, no passing fallback |
-| Before/after correlation, source, selector, logs | Trace contract tests with interleaved actions and multiple streams |
-| Soft assertions survive later success | Regression test and a real Chromium trace |
-| Stable comparison | Different call IDs/error wording; introduced, resolved, persistent failures |
-| Bounded input and output | Compressed-input expansion, event budgets, UTF-8 text bounds, failure cap, no partial JSON |
-| GitHub integration | Executable `gh` test double serves real nested ZIP bytes; success, failure, traversal, byte limit, timeout with descendant, cleanup |
-| Legacy compatibility | Six actual ZIP fixtures from the Desktop Playwright checkout |
+| Independent streams sharing step IDs retain both failures | `unrelated_streams_reusing_step_ids_keep_both_failures` |
+| Recording directory, origin, timing, and available metadata constrain merges | `cross_stream_steps_need_matching_recording_scope_role_and_time` |
+| Related browser/runner steps merge, including clock rounding, soft metadata, and detail cap zero | `related_runner_and_browser_streams_merge_the_same_step` |
+| Identical standalone errors remain distinct within and across streams | `repeated_standalone_errors_remain_independent_within_and_across_streams` |
+| Interleaved recordings cannot evict unmatched candidates | `interleaved_recordings_keep_unmatched_step_candidates` |
+| Text detail limits cannot alter failure identity or copied-error deduplication | `text_caps_do_not_merge_distinct_selector_prefixes`, `text_caps_do_not_duplicate_a_related_action_error` |
+| GitHub traces share the event budget | `github_event_budget_is_shared_by_all_nested_traces` |
+| Nested compression cannot reset the decompressed-byte budget | `github_decompressed_byte_budget_is_shared_by_all_nested_traces` |
+| Detail caps zero/one preserve totals and per-report truncation | `github_retained_failure_budget_preserves_totals_and_truncation` |
 
-The timeout regression launches a child holding inherited pipes, verifies that the command exits promptly, and checks temporary-file cleanup. GitHub tests do not require credentials or network access. Live authentication succeeded, but the public Grafana artifacts endpoint returned an empty response; live artifact download remains unverified.
+Other contracts cover malformed/missing/unsupported inputs, interleaved actions, incomplete actions, legacy formats, UTF-8 truncation, comparison by occurrence, compact JSON, opt-in failure exit codes, output limits, and subprocess cleanup. The GitHub test double serves actual nested ZIP bytes and exercises success, failure, traversal, timeout with a descendant, and cleanup without credentials or network access.
 
-## Desktop Playwright and Grafana
+## Targeted mutation checks
 
-The read-only Desktop Playwright checkout contained these historical trace fixtures; all six were parsed successfully:
+A fresh worker copied the `c44af4781bf8298b312e1e4a2a489d46dd381cfa` working-tree implementation into an isolated temporary probe. It changed production code only in that copy. Each targeted regression passed at baseline, failed on an actual behavioral assertion with the injected fault, and passed after restoration. Compilation failures were not counted as kills. The parent independently inspected the assertions and restoration evidence.
 
-- `tests/assets/test-trace1.zip`
-- `tests/assets/test-trace2.zip`
-- `tests/assets/trace-1.31.zip`
-- `tests/assets/trace-1.37.zip`
-- `tests/assets/trace-library-1.46.zip`
-- `tests/assets/trace-remote-time-diff.zip`
+| Injected production fault | Observed regression | Result |
+| --- | --- | --- |
+| Trust a shared step ID without correlation guards | Two independent actions collapse to one | Killed |
+| Let standalone errors arm duplicate suppression | Two standalone errors collapse to one | Killed |
+| Reset byte usage for each nested trace | Over-budget artifact incorrectly succeeds | Killed |
+| Reset event usage for each nested trace | 1,200 events incorrectly fit a 1,000-event cap | Killed |
+| Reset retained-failure usage for each nested trace | Cap one retains two items | Killed |
+| Skip counting when retention is full | Cap zero loses all six failure totals | Killed |
+| Omit truncation when retention is full | Affected reports incorrectly claim untruncated evidence | Killed |
+| Flush buffered JSON before reporting an output-limit error | stdout leaks an incomplete JSON prefix | Killed |
 
-The 1.37 fixture exposes an incomplete action; it remains incomplete rather than being counted as passed.
+All eight selected faults were killed; this is scoped behavioral evidence, not a whole-suite mutation score. The correlation guard challenge was also rerun against the later one-millisecond clock-rounding refinement with baseline/fault/restoration all confirmed. The subsequent raw-identity and unmatched-candidate fixes have separate red-to-green regressions and final Cargo gates; they were not part of the original mutation snapshot. Temporary mutation probes did not edit the live working tree.
 
-Grafana's local manifest pins `@playwright/test` 1.56.1. Using that version and cached Chromium headless shell 1248, the validation script generated actual traces:
+## Captured real traces
 
-| Browser case | Actions | Observed failures | Soft failures |
+`cargo test --locked --test real_traces` replays three actual Chromium recordings and six historical Playwright traces. [Fixture provenance](../tests/fixtures/README.md) records capture details, upstream revision, original archive hashes, and minimization. The fixtures retain action/error/clock records and omit screenshots, resources, snapshots, and network records. They contain no executable test source.
+
+| Browser capture | Actions | Observed failures | Soft failures |
 | --- | ---: | ---: | ---: |
-| Passing browser action | 14 | 0 | 0 |
-| Failed browser assertion | 15 | 1 | 0 |
-| Soft failure followed by successful click/assertion | 19 | 1 | 1 |
+| Passing click and assertion | 14 | 0 | 0 |
+| Failed heading assertion | 15 | 1 | 0 |
+| Soft heading failure followed by successful click/assertion | 19 | 1 | 1 |
 
-Both deliberately failing tests are expected; the validation script verifies their trace evidence and exits successfully. Comparing the failed trace with itself yields one persistent failure and no introduced/resolved failures. Browser and runner copies of the same failed step are deduplicated.
+The assertions check the expected outcome, selectors, error evidence, locations, logs, soft metadata, retained-cap zero, comparison, and bounded CLI JSON. The interleaving case replays two and 64 copies of the real failed trace with independently shifted recording clocks, both browser-first and runner-first orderings, retained caps zero/all, and a parsed-event boundary. They do not merely require parsing to succeed. The six historical captures cover older event formats and remote clock differences; the 1.37 capture keeps its incomplete action rather than inventing a pass.
 
-**Scope limit:** this proves trace compatibility with Grafana's pinned Playwright version, not Grafana application behavior. Neither checkout had `node_modules`; no Grafana server was listening on ports 3000/3001, and no Grafana Playwright artifact was available. Neither repository's complete test suite was run. The unchanged legacy web application was not rebuilt.
+During this revision, an external temporary Playwright 1.56.1 installation and cached Chromium headless shell 1248 also generated fresh passing, hard-failure, and soft-failure traces. All three outcomes, the six complete upstream archives, and self-comparison passed validation. The first sandboxed attempt was blocked by macOS Chromium MachPort initialization; the authorized unsandboxed rerun succeeded. The temporary generator is not shipped in this Rust-only repository.
 
-## Performance sample
+The Playwright version matches the local Grafana checkout's pin. Neither Grafana's application suite nor either upstream repository's complete test suite was run. Live GitHub authentication was previously checked, but no available Grafana artifact was found; live artifact download is not established by the local test double.
 
-One warm local release run processed 100,000 sequential actions (200,000 JSON events, 15,966,718 bytes), with only the final action failing. The output was 420 bytes of valid JSON. `/usr/bin/time -l` reported 0.10 seconds elapsed and 2,621,440 bytes maximum resident set size (2.5 MiB). A subsequent run measured 0.39 seconds and 2,670,592 bytes maximum resident set size. The stripped executable was approximately 1.2 MiB.
+## Boundaries
 
-The input generator wrote alternating `before` and `after` events, unique numeric-string call IDs, `apiName: locator.click`, selector `#save`, and monotonic start/end times; the final `after` contained `Timeout waiting for #save`. Reproduce timing with:
+Single-input analysis and artifact batches share the same parser. Artifact extraction has its own cumulative byte bound; trace parsing additionally counts actual decompressed bytes, including JSON whitespace, across all nested traces. Parsed events and retained failure evidence are also cumulative. Summary failure/soft totals continue after the retained-detail cap, and affected reports are marked truncated. Input or output budget errors never return a fabricated complete report.
 
-```sh
-cargo build --locked --release
-/usr/bin/time -l target/release/pw-review analyze benchmark.trace > report.json
-```
+Runner/browser correlation uses step ID within an archive directory, opposite recorded stream origins, compatible raw selector/location evidence when both are supplied, and nested action intervals normalized through `wallTime - monotonicTime`. A one-millisecond allowance covers the header's integer wall-clock resolution. Missing or inconsistent cross-stream clocks conservatively leave actions separate. Unmatched completions are queued separately by browser/runner role for each scoped step ID. Matching consumes only its compatible candidate; unrelated candidates cannot evict one another. Each completed action contributes at most one pending candidate, so candidate storage is bounded by the input and event limits. Only opposite-role candidates are scanned; deque removal avoids shifting the remaining queue when the first candidate matches. Matching is not a constant-time guarantee for adversarially reused IDs. Raw selectors and source locations remain internal correlation identity regardless of `--max-text`; truncation applies when building retained failures. Standalone errors cannot arm the duplicate-action-error suppression state, and stream boundaries clear that state.
 
-This is a synthetic single-host sample, not a universal latency/memory promise. Concurrent incomplete actions, ZIP metadata, long error text, and different storage change resource use. Output bytes are measured, not estimated model tokens. Parsing is local and incurs no model API usage.
+Summary duration still spans the timestamps supplied by the trace. It is not a synchronized wall-clock measurement for recordings from different hosts. Screenshot and DOM interpretation remain the job of Playwright Trace Viewer or a separate visual agent.
 
-## Review constraints
-
-Rust received manual lazy-clean review plus rustfmt and Clippy; the JS checker does not validate Rust. The validation script is also scanned with the lazy-clean checker. The project forbids authored `unsafe` code. Six direct dependencies cover error context, CLI arguments, JSON serialization, ZIP decoding, and Unix process-group cleanup; no async runtime, HTTP client, provider SDK, database, or daemon is needed.
-
-Default budgets are 256 MiB of input/decompressed trace data, one million events, 20 retained failures, 2,048 bytes per retained text field, eight logs per action, and 64 KiB of output. Individual JSON objects have an 8 MiB hard ceiling even when their DOM payload is ignored. Limits preserve aggregate failure counts and mark truncated evidence; input-budget errors never masquerade as complete reports. Exact error text, including safely JSON-escaped ANSI sequences, is retained. Screenshot/DOM interpretation remains the job of Playwright Trace Viewer or a separate visual agent.
+Rust received a manual lazy-clean pass plus rustfmt and Clippy. No JavaScript/TypeScript remains for the language-specific checker to inspect. The crate forbids authored unsafe code and uses no async runtime, HTTP client, provider SDK, database, or daemon.

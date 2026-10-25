@@ -124,6 +124,198 @@ fn separate_trace_streams_do_not_share_call_id_state() {
 }
 
 #[test]
+fn unrelated_streams_reusing_step_ids_keep_both_failures() {
+    let workspace = Workspace::new();
+    let browser = lines(&[
+        json!({"type":"context-options","origin":"library"}),
+        json!({"type":"before","callId":"browser","stepId":"expect@1","class":"Frame","method":"expect","startTime":11,"params":{"selector":"#first"},"stack":[{"file":"first.spec.ts","line":1}]}),
+        json!({"type":"after","callId":"browser","endTime":12,"error":"browser failed"}),
+    ]);
+    let runner = lines(&[
+        json!({"type":"context-options","origin":"testRunner"}),
+        json!({"type":"before","callId":"runner","stepId":"expect@1","class":"Test","method":"expect","startTime":10,"params":{"selector":"#second"},"stack":[{"file":"second.spec.ts","line":2}]}),
+        json!({"type":"after","callId":"runner","endTime":13,"error":"runner failed"}),
+    ]);
+    for entries in [
+        [
+            ("first.trace", browser.as_str()),
+            ("second.trace", runner.as_str()),
+        ],
+        [
+            ("one/0-trace.trace", browser.as_str()),
+            ("two/test.trace", runner.as_str()),
+        ],
+    ] {
+        let path = workspace.archive("independent.zip", &entries);
+        for max_failures in [0, 2] {
+            let report = analyze(
+                &path,
+                &Limits {
+                    max_failures,
+                    ..Limits::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(report.summary.actions, 2);
+            assert_eq!(report.summary.failed, 2);
+            assert_eq!(report.failures.len(), max_failures);
+            assert_eq!(report.truncated, max_failures == 0);
+        }
+    }
+}
+
+#[test]
+fn related_runner_and_browser_streams_merge_the_same_step() {
+    let workspace = Workspace::new();
+    let browser = lines(&[
+        json!({"type":"context-options","origin":"library","wallTime":1000,"monotonicTime":100}),
+        json!({"type":"before","callId":"browser","stepId":"expect@1","class":"Frame","method":"expect","startTime":109.75,"params":{"selector":"#save"}}),
+        json!({"type":"after","callId":"browser","endTime":112,"error":"browser failed","log":["waiting for #save"]}),
+    ]);
+    let runner = lines(&[
+        json!({"type":"context-options","origin":"testRunner","wallTime":1000,"monotonicTime":10}),
+        json!({"type":"before","callId":"runner","stepId":"expect@1","class":"Test","method":"expect","startTime":20,"params":{"isSoft":true},"stack":[{"file":"save.spec.ts","line":2}]}),
+        json!({"type":"after","callId":"runner","endTime":23,"error":"detailed failure"}),
+        json!({"type":"error","message":"detailed failure","stack":[{"file":"save.spec.ts","line":2}]}),
+    ]);
+    let path = workspace.archive(
+        "related.zip",
+        &[
+            ("case/0-trace.trace", &browser),
+            ("case/test.trace", &runner),
+        ],
+    );
+    for max_failures in [0, 1] {
+        let report = analyze(
+            &path,
+            &Limits {
+                max_failures,
+                ..Limits::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(report.summary.actions, 1);
+        assert_eq!(report.summary.failed, 1);
+        assert_eq!(report.summary.soft_failures, 1);
+        assert_eq!(report.failures.len(), max_failures);
+        if let Some(failure) = report.failures.first() {
+            assert_eq!(failure.selector.as_deref(), Some("#save"));
+            assert_eq!(failure.error, "detailed failure");
+            assert_eq!(failure.logs, ["waiting for #save"]);
+            assert_eq!(failure.location.as_ref().unwrap().file, "save.spec.ts");
+        }
+    }
+}
+
+#[test]
+fn repeated_standalone_errors_remain_independent_within_and_across_streams() {
+    let workspace = Workspace::new();
+    let error = lines(&[
+        json!({"type":"error","message":"same failure","stack":[{"file":"test.ts","line":4}]}),
+    ]);
+    let doubled = format!("{error}{error}");
+    for entries in [
+        vec![("test.trace", doubled.as_str())],
+        vec![
+            ("first.trace", error.as_str()),
+            ("second.trace", error.as_str()),
+        ],
+    ] {
+        let path = workspace.archive("errors.zip", &entries);
+        let report = analyze(&path, &Limits::default()).unwrap();
+        assert_eq!(report.summary.actions, 2);
+        assert_eq!(report.summary.failed, 2);
+        assert_eq!(report.failures.len(), 2);
+    }
+}
+
+#[test]
+fn cross_stream_steps_need_matching_recording_scope_role_and_time() {
+    let workspace = Workspace::new();
+    let browser = lines(&[
+        json!({"type":"context-options","origin":"library","wallTime":1000,"monotonicTime":0}),
+        json!({"type":"before","callId":"browser","stepId":"expect@1","class":"Frame","method":"expect","startTime":11,"params":{"selector":"#save"}}),
+        json!({"type":"after","callId":"browser","endTime":12,"error":"failed"}),
+    ]);
+    for (entry, origin, class, start, end) in [
+        ("other/test.trace", Some("testRunner"), "Test", 10, 13),
+        ("case/test.trace", None, "Test", 10, 13),
+        ("case/test.trace", Some("testRunner"), "Test", 20, 23),
+        ("case/test.trace", Some("library"), "Frame", 10, 13),
+    ] {
+        let runner = lines(&[
+            json!({"type":"context-options","origin":origin,"wallTime":1000,"monotonicTime":0}),
+            json!({"type":"before","callId":"runner","stepId":"expect@1","class":class,"method":"expect","startTime":start,"params":{"selector":"#save"}}),
+            json!({"type":"after","callId":"runner","endTime":end,"error":"failed"}),
+        ]);
+        let path = workspace.archive(
+            "unlinked.zip",
+            &[("case/0-trace.trace", &browser), (entry, &runner)],
+        );
+        let report = analyze(&path, &Limits::default()).unwrap();
+        assert_eq!(report.summary.actions, 2, "{entry} {origin:?} {start}");
+        assert_eq!(report.summary.failed, 2, "{entry} {origin:?} {start}");
+    }
+}
+
+#[test]
+fn text_caps_do_not_merge_distinct_selector_prefixes() {
+    let workspace = Workspace::new();
+    for prefix in [String::new(), "a".repeat(Limits::default().max_text)] {
+        let make_stream = |origin, class, selector, start, end| {
+            lines(&[
+                json!({"type":"context-options","origin":origin,"wallTime":1000,"monotonicTime":0}),
+                json!({"type":"before","callId":"action","stepId":"expect@1","class":class,"method":"expect","startTime":start,"params":{"selector":selector}}),
+                json!({"type":"after","callId":"action","endTime":end,"error":"failed"}),
+            ])
+        };
+        let browser = make_stream("library", "Frame", format!("#{prefix}first"), 11, 12);
+        let runner = make_stream("testRunner", "Test", format!("#{prefix}second"), 10, 13);
+        let path = workspace.archive(
+            "text-identity.zip",
+            &[("0-trace.trace", &browser), ("test.trace", &runner)],
+        );
+        for max_text in [0, 1, Limits::default().max_text] {
+            let report = analyze(
+                &path,
+                &Limits {
+                    max_text,
+                    ..Limits::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(report.summary.actions, 2, "cap {max_text}");
+            assert_eq!(report.summary.failed, 2, "cap {max_text}");
+            assert_eq!(report.failures.len(), 2, "cap {max_text}");
+        }
+    }
+}
+
+#[test]
+fn text_caps_do_not_duplicate_a_related_action_error() {
+    let workspace = Workspace::new();
+    let stream = lines(&[
+        json!({"type":"before","callId":"runner","stepId":"expect@1","class":"Test","method":"expect","stack":[{"file":"test.spec.ts","line":7}]}),
+        json!({"type":"after","callId":"runner","error":"failed"}),
+        json!({"type":"error","message":"failed","stack":[{"file":"test.spec.ts","line":7}]}),
+    ]);
+    let path = workspace.archive("error-copy.zip", &[("test.trace", &stream)]);
+    for max_text in [0, 1, Limits::default().max_text] {
+        let report = analyze(
+            &path,
+            &Limits {
+                max_text,
+                ..Limits::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(report.summary.actions, 1, "cap {max_text}");
+        assert_eq!(report.summary.failed, 1, "cap {max_text}");
+        assert_eq!(report.failures.len(), 1, "cap {max_text}");
+    }
+}
+
+#[test]
 fn soft_assertion_is_not_lost_when_later_actions_pass() {
     let workspace = Workspace::new();
     let mut trace = action(

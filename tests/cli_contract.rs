@@ -368,3 +368,104 @@ fn github_rejects_path_traversal_and_cleans_up() {
     assert!(!workspace.0.join("escape.trace").exists());
     assert_scratch_empty(&workspace);
 }
+
+#[cfg(unix)]
+fn github_with_two_traces(workspace: &Workspace, events: usize) -> (Command, usize) {
+    let event = "{\"type\":\"action\",\"method\":\"click\",\"error\":\"failed\"}\n";
+    let contents = event.repeat(events);
+    let mut inner = ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    inner
+        .start_file(
+            "test.trace",
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated),
+        )
+        .unwrap();
+    inner.write_all(contents.as_bytes()).unwrap();
+    let bytes = inner.finish().unwrap().into_inner();
+    let artifact = workspace.0.join("artifact.zip");
+    let mut archive = ZipWriter::new(File::create(&artifact).unwrap());
+    for name in ["first/trace.zip", "second/trace.zip"] {
+        archive
+            .start_file(name, SimpleFileOptions::default())
+            .unwrap();
+        archive.write_all(&bytes).unwrap();
+    }
+    archive.finish().unwrap();
+    let mut command = mock_github(
+        workspace,
+        "case \"$2\" in\n  */artifacts/321/zip) cat \"$MOCK_ARTIFACT\" ;;\n  *) printf '%s' '{\"total_count\":1,\"artifacts\":[{\"id\":321,\"name\":\"traces\",\"size_in_bytes\":100,\"expired\":false}]}' ;;\nesac",
+    );
+    command.env("MOCK_ARTIFACT", artifact);
+    (command, contents.len())
+}
+
+#[test]
+#[cfg(unix)]
+fn github_event_budget_is_shared_by_all_nested_traces() {
+    let workspace = Workspace::new();
+    let (mut command, _) = github_with_two_traces(&workspace, 600);
+    let output = command.args(["--max-events", "1000"]).output().unwrap();
+    let error = assert_error(&output, "runtime");
+    assert!(
+        error["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("max_events")
+    );
+    assert_scratch_empty(&workspace);
+}
+
+#[test]
+#[cfg(unix)]
+fn github_decompressed_byte_budget_is_shared_by_all_nested_traces() {
+    let workspace = Workspace::new();
+    let (mut command, bytes) = github_with_two_traces(&workspace, 600);
+    let output = command
+        .args(["--max-bytes", &(bytes + 1000).to_string()])
+        .output()
+        .unwrap();
+    let error = assert_error(&output, "runtime");
+    assert!(
+        error["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("max_bytes")
+    );
+    assert_scratch_empty(&workspace);
+}
+
+#[test]
+#[cfg(unix)]
+fn github_retained_failure_budget_preserves_totals_and_truncation() {
+    for max_failures in [0, 1] {
+        let workspace = Workspace::new();
+        let (mut command, _) = github_with_two_traces(&workspace, 3);
+        let output = command
+            .args(["--max-failures", &max_failures.to_string()])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let value = stdout_json(&output);
+        let reports = value["reports"].as_array().unwrap();
+        assert_eq!(
+            reports
+                .iter()
+                .map(|item| item["report"]["summary"]["failed"].as_u64().unwrap())
+                .sum::<u64>(),
+            6
+        );
+        assert_eq!(
+            reports
+                .iter()
+                .map(|item| item["report"]["failures"].as_array().unwrap().len())
+                .sum::<usize>(),
+            max_failures
+        );
+        assert!(
+            reports
+                .iter()
+                .all(|item| item["report"]["truncated"] == true)
+        );
+        assert_scratch_empty(&workspace);
+    }
+}
