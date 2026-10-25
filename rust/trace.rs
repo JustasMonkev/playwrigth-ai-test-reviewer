@@ -208,11 +208,14 @@ impl Analysis<'_> {
             if self.usage.events >= self.limits.max_events {
                 bail!("Trace exceeds max_events ({})", self.limits.max_events);
             }
-            let mut event: Event = serde_json::from_slice(&frame).with_context(|| {
+            let event = Event::decode(&frame).with_context(|| {
                 format!("Malformed JSON at event {}", self.report.summary.events + 1)
             })?;
             self.report.summary.events += 1;
             self.usage.events += 1;
+            let Some(mut event) = event else {
+                continue;
+            };
             for time in [event.start_time, event.end_time].into_iter().flatten() {
                 self.first_time = Some(self.first_time.map_or(time, |old| old.min(time)));
                 self.last_time = Some(self.last_time.map_or(time, |old| old.max(time)));

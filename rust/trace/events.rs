@@ -1,6 +1,12 @@
 use crate::Location;
 use serde::Deserialize;
 
+#[derive(Deserialize)]
+struct RecordType {
+    #[serde(default, rename = "type")]
+    kind: String,
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Event {
@@ -27,6 +33,18 @@ pub(super) struct Event {
     pub(super) log: Vec<Log>,
     pub(super) metadata: Option<Box<Event>>,
     pub(super) result: Option<ActionResult>,
+}
+
+impl Event {
+    pub(super) fn decode(frame: &[u8]) -> serde_json::Result<Option<Self>> {
+        let record: RecordType = serde_json::from_slice(frame)?;
+        match record.kind.as_str() {
+            "context-options" | "before" | "after" | "log" | "action" | "error" => {
+                serde_json::from_slice(frame).map(Some)
+            }
+            _ => Ok(None),
+        }
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]

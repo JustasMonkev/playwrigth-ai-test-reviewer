@@ -1,6 +1,7 @@
 use super::events::Event;
 use super::{Action, Analysis, Completion, MAX_LOGS, Origin, Recording};
 use crate::Failure;
+use crate::report::FailureIdentity;
 
 const WALL_TIME_RESOLUTION_MS: f64 = 1.0;
 
@@ -35,7 +36,7 @@ impl Analysis<'_> {
             .take()
             .or_else(|| event.stack.drain(..).next());
         Action {
-            action: self.text(name),
+            action: name,
             selector: params.selector,
             location,
             start_time: event.start_time,
@@ -119,12 +120,18 @@ impl Analysis<'_> {
             .start_time
             .zip(event.end_time)
             .map(|(start, end)| (end - start).max(0.0));
+        let identity = FailureIdentity {
+            action: action.action.clone(),
+            selector: action.selector.clone(),
+            location: action.location.clone(),
+        };
         let mut location = action.location;
         if let Some(location) = &mut location {
             location.file = self.text(std::mem::take(&mut location.file));
         }
         let failure = Failure {
-            action: action.action,
+            identity,
+            action: self.text(action.action),
             selector: action.selector.map(|selector| self.text(selector)),
             error,
             logs: action.logs,
@@ -134,6 +141,15 @@ impl Analysis<'_> {
         };
         let index = if let Some(index) = index {
             let previous = &mut self.report.failures[index];
+            previous.identity.location = failure
+                .identity
+                .location
+                .or(previous.identity.location.take());
+            previous.identity.selector = previous
+                .identity
+                .selector
+                .take()
+                .or(failure.identity.selector);
             previous.location = failure.location.or(previous.location.take());
             previous.selector = previous.selector.take().or(failure.selector);
             previous.soft |= failure.soft;

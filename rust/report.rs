@@ -13,6 +13,8 @@ pub struct Location {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Failure {
+    #[serde(skip)]
+    pub(crate) identity: FailureIdentity,
     pub action: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selector: Option<String>,
@@ -23,6 +25,13 @@ pub struct Failure {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<f64>,
     pub soft: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct FailureIdentity {
+    pub(crate) action: String,
+    pub(crate) selector: Option<String>,
+    pub(crate) location: Option<Location>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -60,15 +69,17 @@ pub fn compare(before: &Report, after: &Report) -> Value {
     let mut previous = BTreeMap::<_, VecDeque<_>>::new();
     for failure in &before.failures {
         previous
-            .entry((&failure.action, &failure.selector, &failure.location))
+            .entry(&failure.identity)
             .or_default()
             .push_back(failure);
     }
     let mut introduced = Vec::new();
     let mut persistent = Vec::new();
     for failure in &after.failures {
-        let key = (&failure.action, &failure.selector, &failure.location);
-        match previous.get_mut(&key).and_then(VecDeque::pop_front) {
+        match previous
+            .get_mut(&failure.identity)
+            .and_then(VecDeque::pop_front)
+        {
             Some(old) => persistent.push(json!({"before": old, "after": failure})),
             None => introduced.push(failure),
         }
@@ -100,6 +111,15 @@ mod tests {
             failures: errors
                 .iter()
                 .map(|error| Failure {
+                    identity: FailureIdentity {
+                        action: "locator.click".into(),
+                        selector: Some("#submit".into()),
+                        location: Some(Location {
+                            file: "test.ts".into(),
+                            line: Some(4),
+                            column: Some(2),
+                        }),
+                    },
                     action: "locator.click".into(),
                     selector: Some("#submit".into()),
                     error: (*error).into(),

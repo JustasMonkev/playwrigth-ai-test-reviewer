@@ -384,6 +384,33 @@ fn malformed_json_does_not_silently_become_a_passing_report() {
 }
 
 #[test]
+fn console_and_non_action_records_are_ignored_but_count_toward_limits() {
+    let workspace = Workspace::new();
+    let trace = action("call@1", "locator.click", "#save", Some("timeout"));
+    let (before, after) = trace.split_once('\n').unwrap();
+    let trace = format!(
+        "{before}\n{}{after}",
+        lines(&[
+            json!({"type":"console","messageType":"log","text":"hello",
+                "location":{"url":"http://localhost/","lineNumber":3,"columnNumber":1}}),
+            json!({"type":"event","method":"console","params":{"message":"object@1"}}),
+        ])
+    );
+    let path = workspace.archive("console.zip", &[("trace.trace", &trace)]);
+    let report = analyze(&path, &Limits::default()).unwrap();
+    assert_eq!(report.summary.events, 4);
+    assert_eq!(report.summary.actions, 1);
+    assert_eq!(report.summary.failed, 1);
+    assert_eq!(report.failures[0].selector.as_deref(), Some("#save"));
+    let limits = Limits {
+        max_events: 3,
+        ..Limits::default()
+    };
+    let error = analyze(&path, &limits).unwrap_err();
+    assert!(format!("{error:#}").contains("max_events"));
+}
+
+#[test]
 fn incomplete_actions_are_not_counted_as_passed() {
     let workspace = Workspace::new();
     let trace = lines(&[json!({"type":"before","callId":"call@1",

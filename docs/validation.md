@@ -11,7 +11,7 @@ cargo test --locked
 cargo build --locked --release
 ```
 
-The final checks pass 54 Rust tests covering parser and report units, CLI contracts, nested GitHub artifacts, and nine captured real traces. The GitHub workflow runs the Cargo gates on Linux and macOS.
+The final checks pass 58 Rust tests covering parser and report units, CLI contracts, nested GitHub artifacts, and nine captured real traces. The GitHub workflow runs the Cargo gates on Linux and macOS.
 
 ## Review regressions
 
@@ -28,6 +28,10 @@ The new regression tests were run against the previous implementation before the
 | GitHub traces share the event budget | `github_event_budget_is_shared_by_all_nested_traces` |
 | Nested compression cannot reset the decompressed-byte budget | `github_decompressed_byte_budget_is_shared_by_all_nested_traces` |
 | Detail caps zero/one preserve totals and per-report truncation | `github_retained_failure_budget_preserves_totals_and_truncation` |
+| Comparison uses raw identity even with zero/default text caps or merged browser/runner evidence | `cargo test --locked --test comparison_contract` |
+| Console records cannot be decoded as action locations, but still consume event budget | `console_and_non_action_records_are_ignored_but_count_toward_limits` |
+
+The later comparison regressions failed before the fix: different identities collided after truncation, and identical identities stopped matching across different text caps. Raw action/selector/location identities now remain private and are omitted from JSON. Their merge precedence matches retained evidence. This changes Rust struct-literal construction of `Failure`; library consumers obtain failures through `analyze`/`analyze_all`. JSON field names and schema remain unchanged. Console-location regression also failed with `missing field file` before event-type dispatch was moved ahead of action-field decoding. Ignored records still consume byte/event budgets, and malformed JSON remains an error.
 
 Other contracts cover malformed/missing/unsupported inputs, interleaved actions, incomplete actions, legacy formats, UTF-8 truncation, comparison by occurrence, compact JSON, opt-in failure exit codes, output limits, and subprocess cleanup. The GitHub test double serves actual nested ZIP bytes and exercises success, failure, traversal, timeout with a descendant, and cleanup without credentials or network access.
 
@@ -63,6 +67,36 @@ The assertions check the expected outcome, selectors, error evidence, locations,
 During this revision, an external temporary Playwright 1.56.1 installation and cached Chromium headless shell 1248 also generated fresh passing, hard-failure, and soft-failure traces. All three outcomes, the six complete upstream archives, and self-comparison passed validation. The first sandboxed attempt was blocked by macOS Chromium MachPort initialization; the authorized unsandboxed rerun succeeded. The temporary generator is not shipped in this Rust-only repository.
 
 The Playwright version matches the local Grafana checkout's pin. Neither Grafana's application suite nor either upstream repository's complete test suite was run. Live GitHub authentication was previously checked, but no available Grafana artifact was found; live artifact download is not established by the local test double.
+
+## Failure versus pass comparison and tokens
+
+![Actual comparison output in both directions](evidence/failure-pass-comparison.png)
+
+The image displays actual `--pretty` stdout from the release binary, not an application mockup. Reproduce it from the repository root:
+
+```sh
+target/release/pw-review compare tests/fixtures/browser-hard.zip tests/fixtures/browser-pass.zip --pretty
+target/release/pw-review compare tests/fixtures/browser-pass.zip tests/fixtures/browser-hard.zip --pretty
+```
+
+| Direction | Failed before → after | Introduced | Resolved | Persistent | Exit with `--fail-on-error` |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Failure → pass | 1 → 0 | 0 | 1 | 0 | 0 |
+| Pass → failure | 0 → 1 | 1 | 0 | 0 | 1 |
+
+Default exit status is zero in both cases. `truncated: true` is preserved because the captured failure has more logs than the retained-log cap; the output is bounded evidence, not a promise of complete details. Exact compact stdout is saved for [failure → pass](evidence/hard-to-pass.json) and [pass → failure](evidence/pass-to-hard.json).
+
+| Output format, either direction | UTF-8 bytes | `o200k_base` tokens |
+| --- | ---: | ---: |
+| Compact JSON (default) | 1,375 | 468 |
+| Pretty JSON | 1,706 | 561 |
+| Agent prompt (`--prompt`) | 1,646 | 518 |
+
+Counts include the trailing newline, using `tiktoken 0.14.0` with `get_encoding("o200k_base")` and the length of `encode(stdout)`, measured in an isolated temporary environment. The final binary's six outputs were checked byte-for-byte against the measured samples. Token counts depend on encoding, paths, evidence, and options; these are not asserted to be GPT-6.1 billing counts. The tokenizer is not a repository dependency.
+
+For this fixture pair, the original `.trace` entries contain 18,794 bytes and 5,911 tokens (sum of separately encoded entries). The compact comparison is 92.08% smaller in tokens. This is a lossy evidence summary, not compression of equivalent information; ZIP binaries, snapshots, and images are excluded from that baseline.
+
+The CLI makes no model calls, so its direct model-token usage is **zero**. Sending its output to an agent consumes that agent's context. Actual tokens spent developing/reviewing this PR are not exposed by the session tools and were not measured.
 
 ## Boundaries
 
