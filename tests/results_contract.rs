@@ -214,3 +214,64 @@ fn real_playwright_passing_capture_keeps_recovery_without_failing_the_run() {
     );
     assert!(!run.has_failures());
 }
+
+#[test]
+fn runner_errors_obey_record_limits_independently_of_retained_details() {
+    for error_count in 0..=2 {
+        let input = Input::json(json!({
+            "suites": [],
+            "errors": (0..error_count).map(|_| json!({"message":"runner failure"})).collect::<Vec<_>>()
+        }));
+        for max_events in 0..=2 {
+            for max_failures in [0, 1, 2] {
+                let result = analyze_results(
+                    &input.0,
+                    &Limits {
+                        max_events,
+                        max_failures,
+                        ..Limits::default()
+                    },
+                );
+                if error_count > max_events {
+                    assert!(result.unwrap_err().to_string().contains("max_events"));
+                } else {
+                    let run = result.unwrap();
+                    assert_eq!(run.summary.runner_errors, error_count);
+                    assert_eq!(run.runner_errors.len(), error_count.min(max_failures));
+                    assert_eq!(run.has_failures(), error_count != 0);
+                    assert_eq!(run.truncated, error_count > max_failures);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn runner_errors_share_the_suite_test_and_attempt_record_budget() {
+    let mut value = report("passed", &["failed", "passed"]);
+    value["errors"] = json!([{"message":"first"}, {"message":"second"}]);
+    let input = Input::json(value);
+    let mut limits = Limits {
+        max_events: 6,
+        max_failures: 0,
+        ..Limits::default()
+    };
+    assert!(
+        analyze_results(&input.0, &limits)
+            .unwrap_err()
+            .to_string()
+            .contains("max_events")
+    );
+    limits.max_events = 7;
+    let run = analyze_results(&input.0, &limits).unwrap();
+    assert_eq!(
+        (
+            run.summary.total,
+            run.summary.attempts,
+            run.summary.runner_errors
+        ),
+        (1, 2, 2)
+    );
+    assert_eq!(run.tests[0].outcome, TestOutcome::Flaky);
+    assert!(run.runner_errors.is_empty() && run.has_failures() && run.truncated);
+}

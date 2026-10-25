@@ -6,7 +6,7 @@ Playwright 1.56.1 scripts, not repository runtime dependencies.
 
 ## Checks and behavior
 
-Formatting, Clippy (`--locked --all-targets -- -D warnings`), all **115 Rust tests**,
+Formatting, Clippy (`--locked --all-targets -- -D warnings`), all **118 Rust tests**,
 and the locked release build pass locally. Every maintained file is at most 482
 physical lines. The existing workflow runs these Cargo gates on Linux and macOS.
 
@@ -26,6 +26,26 @@ Regressions now check the shared exact limit, opened-file policy, and recorded
 640 × 360 DOM dimensions. The visual-input regression first failed after detecting and terminating a blocked child process, then passed for both list and extract after a nonblocking Unix open plus opened-descriptor regular-file validation.
 
 ![Actual CLI failure/pass, diagnostics, catalog and test output](evidence/test-review-workflow.png)
+
+## Runner-error record-limit regression
+
+Runner errors now consume the same `max_events` budget as suites, specs, tests,
+and attempts, even when `--max-failures 0` discards every retained error detail.
+The new tests failed before the fix: an errors-only report at a zero-record cap
+incorrectly exited 0 instead of 2. After the fix, all 17 results/CLI contract tests
+pass. Coverage includes empty zero-cap input, exact and exceeded boundaries,
+shared suite/attempt budgets, retained-detail independence, and no partial stdout
+on rejection. Rerun with:
+
+```sh
+cargo test --locked --test results_contract --test review_cli_contract
+```
+
+![Actual failing CLI regression and passing results/CLI contracts](evidence/runner-error-budget.png)
+
+The earlier workflow image records the 115-test feature checkpoint; the full suite
+now passes 118 tests. The six mutation challenges below belong to that earlier
+feature checkpoint and were not rerun for this record-budget correction.
 
 ## Actual failure and pass
 

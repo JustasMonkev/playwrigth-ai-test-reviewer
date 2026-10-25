@@ -304,3 +304,47 @@ fn visual_inputs_reject_special_files_without_waiting() {
     }
     assert!(!work.0.join("output.json").exists());
 }
+
+#[test]
+fn runner_error_record_limit_rejects_without_partial_stdout() {
+    let work = Workspace::new();
+    let input = work.0.join("runner-errors.json");
+    fs::write(
+        &input,
+        r#"{"suites":[],"errors":[{"message":"startup failed"}]}"#,
+    )
+    .unwrap();
+    let rejected = cli()
+        .arg("results")
+        .arg(&input)
+        .args(["--max-events", "0", "--max-failures", "0"])
+        .output()
+        .unwrap();
+    error(&rejected);
+    let error: Value = serde_json::from_slice(&rejected.stderr).unwrap();
+    assert!(
+        error["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("max_events")
+    );
+    let accepted = cli()
+        .arg("results")
+        .arg(&input)
+        .args([
+            "--max-events",
+            "1",
+            "--max-failures",
+            "0",
+            "--fail-on-error",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(accepted.status.code(), Some(1));
+    let report = json(&accepted);
+    assert_eq!(report["report"]["summary"]["runner_errors"], 1);
+    assert_eq!(
+        report["report"]["runner_errors"].as_array().unwrap().len(),
+        0
+    );
+}

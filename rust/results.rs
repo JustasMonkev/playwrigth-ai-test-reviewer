@@ -14,6 +14,10 @@ pub fn analyze_results(path: &Path, limits: &Limits) -> Result<TestRunReport> {
     let bytes = read_bounded(path, limits.max_bytes)?;
     let input: InputReport =
         serde_json::from_slice(&bytes).context("Invalid Playwright JSON report")?;
+    let mut usage = input.errors.len();
+    if usage > limits.max_events {
+        bail!("Results exceed max_events");
+    }
     let mut report = TestRunReport {
         schema_version: 1,
         source: path.to_string_lossy().into_owned(),
@@ -36,7 +40,6 @@ pub fn analyze_results(path: &Path, limits: &Limits) -> Result<TestRunReport> {
         .map(|error| bounded(&error.message(), limits.max_text, &mut report.truncated))
         .collect();
     report.truncated |= report.summary.runner_errors > report.runner_errors.len();
-    let mut usage = 0;
     let mut identities = BTreeSet::new();
     for suite in input.suites {
         visit(suite, &[], &browsers, limits, &mut usage, &mut report)?;
