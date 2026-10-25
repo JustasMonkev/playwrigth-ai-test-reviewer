@@ -24,6 +24,19 @@ JSON is compact by default; use `--pretty` for a human-readable report. `--promp
 
 The report keeps failed actions, selectors, error messages, source locations when present, and bounded call logs. It skips screenshot bytes, DOM snapshots, network bodies, and successful-action detail. This reduces context size without claiming a tokenizer-independent token count or an AI diagnosis. Use Playwright Trace Viewer when visual evidence is needed.
 
+## Network evidence
+
+```sh
+pw-review analyze trace.zip --slow-ms 1000 --max-network 20
+pw-review compare before.zip after.zip --prompt
+```
+
+Network logs expose observed HTTP errors, transport failures, and slow requests. The default threshold is 1,000 ms (inclusive). Reports count all requests but retain only failed/slow request details: method, URL, status, elapsed milliseconds, available wait timing, and transport error code. Failures rank first, then longest duration; a later higher-priority request can replace a retained item. These are individual request samples, not endpoint percentiles or proof of server-side latency.
+
+URL credentials, queries, and fragments are removed before text clipping. Headers, cookies, and bodies are never included; paths can still contain application data. Missing/negative durations remain unknown, not zero. HTTP 400–599 and explicit transport errors count as network failures; missing/negative status alone denotes an incomplete observation. Aborted requests are reported but can be intentional.
+
+`network` is omitted when there are no network records or log entries. An empty network log is reported with zero requests, not treated as verified healthy traffic. Playwright can carry network logs across trace chunks, so counts describe the included observations, not traffic exclusive to one test. Comparisons include before/after network reports without claiming a complete introduced/resolved network inventory. Network findings do not change action failure counts or `--fail-on-error` exit status.
+
 ## GitHub Actions
 
 Authenticate with `gh auth login`, then provide an explicit repository, run ID, and artifact name:
@@ -32,7 +45,7 @@ Authenticate with `gh auth login`, then provide an explicit repository, run ID, 
 pw-review github 123456789 --repo owner/repo --artifact playwright-report
 ```
 
-The command retrieves the named artifact through the installed GitHub CLI, analyzes its trace ZIPs, and prints a report. Decompressed bytes, parsed events, and retained failure details share one budget across every trace in the artifact; failure totals are still counted after the detail cap is reached. It does not post comments, create reviews, or modify the repository. Downloads and processing are bounded; temporary files are cleaned up. Artifacts must be available to the authenticated account and not expired.
+The command retrieves the named artifact through the installed GitHub CLI, analyzes its trace ZIPs, and prints a report. Decompressed bytes and parsed events include network logs. Failure details and network evidence each have a cumulative retention budget across every trace in the artifact; failure totals are still counted after the detail cap is reached. It does not post comments, create reviews, or modify the repository. Downloads and processing are bounded; temporary files are cleaned up. Artifacts must be available to the authenticated account and not expired.
 
 For CI, capture the exit status separately from the JSON:
 
@@ -50,7 +63,7 @@ Operational errors are JSON on stderr. `--help` and `--version` are plain text.
 
 ## Input and output contracts
 
-Supported inputs include Playwright trace ZIPs and raw trace event streams. Events may be newline-delimited, concatenated JSON objects, or a JSON array. A ZIP can contain multiple `.trace` streams. Independent streams retain their own action and error state. Invalid JSON, unsupported content, corrupt archives, and resource-limit violations return errors rather than a fabricated successful test result.
+Supported inputs include Playwright trace ZIPs and raw trace event streams. Events may be newline-delimited, concatenated JSON objects, or a JSON array. A ZIP can contain multiple `.trace` and `.network` streams. Raw `.network` logs and inline `resource-snapshot` records are also supported. Independent streams retain their own action and error state. Invalid JSON, unsupported content, corrupt archives, and resource-limit violations return errors rather than a fabricated successful test result.
 
 Browser and test-runner copies of a step are merged only when step ID, recording scope, stream roles, timing, and available selector/location evidence agree. Streams in different archive directories are separate recordings. Clock metadata is normalized for matching, with a one-millisecond allowance for integer wall-clock rounding. Ambiguous or missing cross-stream timing evidence leaves actions distinct. A runner error immediately repeating its failed action is counted once; identical standalone errors are independent.
 
@@ -63,6 +76,8 @@ Reports use `schema_version: 1`. Summary counts describe **trace actions**, not 
 | `--max-bytes` | Input/decompressed trace byte budget |
 | `--max-events` | Trace event budget |
 | `--max-failures` | Retained failure details |
+| `--max-network` | Retained failed/slow requests (default 20; shared across artifact traces) |
+| `--slow-ms` | Inclusive slow-request threshold (default 1,000 ms) |
 | `--max-text` | Text detail length |
 | `--max-output-bytes` | Serialized output budget; oversized output fails rather than emitting broken JSON |
 

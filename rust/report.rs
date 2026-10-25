@@ -53,6 +53,8 @@ pub struct Report {
     pub summary: Summary,
     pub failures: Vec<Failure>,
     pub truncated: bool,
+    #[serde(skip_serializing_if = "crate::NetworkReport::absent")]
+    pub network: crate::NetworkReport,
 }
 
 impl Report {
@@ -85,7 +87,7 @@ pub fn compare(before: &Report, after: &Report) -> Value {
         }
     }
     let resolved: Vec<_> = previous.into_values().flatten().collect();
-    json!({
+    let mut result = json!({
         "schema_version": 1,
         "before": { "source": before.source, "failed": before.failure_count() },
         "after": { "source": after.source, "failed": after.failure_count() },
@@ -93,7 +95,11 @@ pub fn compare(before: &Report, after: &Report) -> Value {
         "resolved": resolved,
         "persistent": persistent,
         "truncated": before.truncated || after.truncated,
-    })
+    });
+    if !before.network.absent() || !after.network.absent() {
+        result["network"] = json!({"before": before.network, "after": after.network});
+    }
+    result
 }
 
 #[cfg(test)]
@@ -134,6 +140,7 @@ mod tests {
                 })
                 .collect(),
             truncated: false,
+            network: crate::NetworkReport::default(),
         }
     }
 

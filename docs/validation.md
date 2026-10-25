@@ -11,7 +11,7 @@ cargo test --locked
 cargo build --locked --release
 ```
 
-The final checks pass 62 Rust tests covering parser and report units, CLI contracts, nested GitHub artifacts, and nine captured real traces. The GitHub workflow runs the Cargo gates on Linux and macOS.
+The final checks pass 71 Rust tests covering parser and report units, CLI contracts, nested GitHub artifacts, and ten captured real traces. The GitHub workflow runs the Cargo gates on Linux and macOS.
 
 ## Review regressions
 
@@ -91,9 +91,9 @@ Default exit status is zero in both cases. `truncated: true` is preserved becaus
 | --- | ---: | ---: |
 | Compact JSON (default) | 1,375 | 468 |
 | Pretty JSON | 1,706 | 561 |
-| Agent prompt (`--prompt`) | 1,646 | 518 |
+| Agent prompt (`--prompt`) | 1,817 | 546 |
 
-Counts include the trailing newline, using `tiktoken 0.14.0` with `get_encoding("o200k_base")` and the length of `encode(stdout)`, measured in an isolated temporary environment. The final binary's six outputs were checked byte-for-byte against the measured samples. Token counts depend on encoding, paths, evidence, and options; these are not asserted to be GPT-6.1 billing counts. The tokenizer is not a repository dependency.
+Counts include the trailing newline, using `tiktoken 0.14.0` with `get_encoding("o200k_base")` and the length of `encode(stdout)`, measured in an isolated temporary environment. Compact and pretty comparison outputs remain byte-identical to the original measured samples. Prompt output was remeasured after adding the network-review instructions. Token counts depend on encoding, paths, evidence, and options; these are not asserted to be GPT-6.1 billing counts. The tokenizer is not a repository dependency.
 
 For this fixture pair, the original `.trace` entries contain 18,794 bytes and 5,911 tokens (sum of separately encoded entries). The compact comparison is 92.08% smaller in tokens. This is a lossy evidence summary, not compression of equivalent information; ZIP binaries, snapshots, and images are excluded from that baseline.
 
@@ -108,3 +108,19 @@ Runner/browser correlation uses step ID within an archive directory, opposite re
 Summary duration spans action timestamps normalized with each stream's `wallTime - monotonicTime` offset, including legacy action metadata. The captured remote-clock fixture previously reported 57,978,221.456 ms; it now reports approximately 7,844.123 ms. Its regression and three clock-boundary tests failed before the fix and pass after it. Raw timestamps from streams without a usable anchor remain in a separate span; they are never compared directly against epoch timestamps. If both domains exist, the larger of their spans is reported because their relative placement cannot be established. Fully unanchored inputs retain the previous raw-span behavior. Header wall clocks still need to be accurate for cross-host wall-time comparisons; missing anchors cannot establish cross-host elapsed time. Non-finite normalized timestamps or durations are rejected. Screenshot and DOM interpretation remain the job of Playwright Trace Viewer or a separate visual agent.
 
 Rust received a manual lazy-clean pass plus rustfmt and Clippy. No JavaScript/TypeScript remains for the language-specific checker to inspect. The crate forbids authored unsafe code and uses no async runtime, HTTP client, provider SDK, database, or daemon.
+
+## Network validation
+
+The new network feature reads `.network` ZIP entries, raw logs, and inline resource snapshots using the same framing and cumulative input budgets as actions. Its nine contract tests cover real browser data, inclusive thresholds, HTTP/transport/incomplete distinctions, unknown timings, late-arriving ranked evidence, zero-cap totals, URL redaction before clipping, shared batch bytes/events/details, comparison availability, CLI flags/exit semantics, malformed input, and JSON trace fallback next to a network log.
+
+The captured fixture has six requests: three failures (HTTP 500, connection failure, abort), one slow 200, and two fast 200 responses. Action failures remain zero. The slow request took 1,202.295 ms with 1,201.761 ms recorded wait. Wait time is a HAR phase, not proof of server processing time. Exact producer fields are `snapshot.time`, `snapshot.response._failureText`, and `snapshot.timings.wait`.
+
+No network data is inferred from absent logs. Empty or missing logs cannot establish healthy traffic, and cross-chunk logs are not exclusive test-run histories. Evidence is ranked per input; an artifact-wide cap can leave later traces with totals only. Network aggregates count all input requests even after the detail cap. Slow requests alone and network failures do not alter the existing action-based exit contract.
+
+A fresh-context mutation worker received a 147-word handoff and worked only in an isolated regular-file copy. Four deliberately injected faults were killed by unchanged public-entry tests: reversing failure retention priority, ignoring transport errors, preserving URL query/fragment secrets, and resetting batch usage. Each baseline and restored run passed; each mutant failed an intended behavioral assertion. The batch mutant stopped at the detail-cap assertion, so it does not independently prove byte/event mutation sensitivity. The parent inspected the assertion evidence and restoration; all probe files were restored and the probe removed. This is targeted evidence, not a global mutation score.
+
+The actual compact network example in [network-analysis.json](evidence/network-analysis.json) is 971 UTF-8 bytes / 304 `o200k_base` tokens, measured with the same isolated tiktoken version above. It preserves all six request totals and four noteworthy request details. No LLM calls are made. The old failure/pass comparison remains 468 tokens in compact form; its optional agent prompt is now 546 tokens after the network instructions were added.
+
+Independent review found that empty standalone `.network` files were still rejected despite observed log availability. Direct empty-file, empty-array, and network-only ZIP regressions failed before changing the acceptance check from request count to observed-log presence, then passed. This predicate correction follows the mutation snapshot and has separate red-to-green evidence.
+
+![Actual network CLI evidence](evidence/network-analysis.png)
