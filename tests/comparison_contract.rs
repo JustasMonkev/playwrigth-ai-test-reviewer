@@ -6,6 +6,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 
 fn report(events: &[Value], max_text: usize) -> Report {
+    report_with_limits(
+        events,
+        Limits {
+            max_text,
+            ..Limits::default()
+        },
+    )
+}
+
+fn report_with_limits(events: &[Value], limits: Limits) -> Report {
     let path = std::env::temp_dir().join(format!(
         "pw-review-comparison-{}-{}.trace",
         std::process::id(),
@@ -13,13 +23,7 @@ fn report(events: &[Value], max_text: usize) -> Report {
     ));
     let contents: String = events.iter().map(|event| format!("{event}\n")).collect();
     fs::write(&path, contents).unwrap();
-    let result = analyze(
-        &path,
-        &Limits {
-            max_text,
-            ..Limits::default()
-        },
-    );
+    let result = analyze(&path, &limits);
     fs::remove_file(path).unwrap();
     result.unwrap()
 }
@@ -89,4 +93,52 @@ fn merged_failures_compare_using_retained_selector_and_location() {
         assert_eq!(comparison["introduced"], json!([]));
         assert_eq!(comparison["resolved"], json!([]));
     }
+}
+
+#[test]
+fn omitted_failure_details_do_not_prove_an_identity_was_absent() {
+    let a = failure();
+    let mut b = failure();
+    b["params"]["selector"] = json!("#publish");
+    let mut c = failure();
+    c["params"]["selector"] = json!("#cancel");
+    let partial = report_with_limits(
+        &[a.clone(), b.clone(), c.clone()],
+        Limits {
+            max_failures: 2,
+            ..Limits::default()
+        },
+    );
+    let complete = report(&[a, c], Limits::default().max_text);
+
+    for (before, after, uncertain_side, confirmed) in [
+        (&partial, &complete, "after", "resolved"),
+        (&complete, &partial, "before", "introduced"),
+    ] {
+        let diff = compare(before, after);
+        assert_eq!(diff["persistent"][0]["before"]["selector"], "#save");
+        assert_eq!(diff[confirmed][0]["selector"], "#publish");
+        let other = if confirmed == "introduced" {
+            "resolved"
+        } else {
+            "introduced"
+        };
+        assert_eq!(diff[other], json!([]));
+        assert_eq!(
+            diff["unclassified"][uncertain_side][0]["selector"],
+            "#cancel"
+        );
+        assert_eq!(diff["truncated"], true);
+    }
+
+    let no_details = report_with_limits(
+        &[b],
+        Limits {
+            max_failures: 0,
+            ..Limits::default()
+        },
+    );
+    let none_retained = compare(&no_details, &no_details);
+    assert_eq!(none_retained["unclassified"]["omitted_before"], 1);
+    assert_eq!(none_retained["unclassified"]["omitted_after"], 1);
 }

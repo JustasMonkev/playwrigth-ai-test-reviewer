@@ -31,6 +31,8 @@ JSON is compact by default; use `--pretty` for a human-readable report. `--promp
 
 The report keeps failed actions, selectors, error messages, source locations when present, and bounded call logs. It skips screenshot bytes, DOM snapshots, network bodies, and successful-action detail. This reduces context size without claiming a tokenizer-independent token count or an AI diagnosis. Use `evidence list` and `evidence extract` for on-demand screenshots and DOM snapshots, or Playwright Trace Viewer for interactive inspection.
 
+When `--max-failures` omits failure details, `compare` can still confirm matches in `persistent`. It reports an unmatched failure as `introduced` or `resolved` only if the other trace retained every failure identity. Otherwise, the optional `unclassified.before` and `unclassified.after` arrays hold the unmatched evidence; `omitted_before` and `omitted_after` in that object count failures without details.
+
 ## Test outcomes, history, and visual evidence
 
 ```sh
