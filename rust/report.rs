@@ -81,7 +81,7 @@ pub fn compare(before: &Report, after: &Report) -> Value {
             .or_default()
             .push_back(failure);
     }
-    let mut introduced = Vec::new();
+    let mut unmatched_after = Vec::new();
     let mut persistent = Vec::new();
     for failure in &after.failures {
         match previous
@@ -89,10 +89,22 @@ pub fn compare(before: &Report, after: &Report) -> Value {
             .and_then(VecDeque::pop_front)
         {
             Some(old) => persistent.push(json!({"before": old, "after": failure})),
-            None => introduced.push(failure),
+            None => unmatched_after.push(failure),
         }
     }
-    let resolved: Vec<_> = previous.into_values().flatten().collect();
+    let unmatched_before: Vec<_> = previous.into_values().flatten().collect();
+    let omitted_before = before.failure_count().saturating_sub(before.failures.len());
+    let omitted_after = after.failure_count().saturating_sub(after.failures.len());
+    let (introduced, uncertain_after) = if omitted_before == 0 {
+        (unmatched_after, Vec::new())
+    } else {
+        (Vec::new(), unmatched_after)
+    };
+    let (resolved, uncertain_before) = if omitted_after == 0 {
+        (unmatched_before, Vec::new())
+    } else {
+        (Vec::new(), unmatched_before)
+    };
     let mut result = json!({
         "schema_version": 1,
         "before": { "source": before.source, "failed": before.failure_count() },
@@ -102,6 +114,12 @@ pub fn compare(before: &Report, after: &Report) -> Value {
         "persistent": persistent,
         "truncated": before.truncated || after.truncated,
     });
+    if omitted_before != 0 || omitted_after != 0 {
+        result["unclassified"] = json!({
+            "before": uncertain_before, "after": uncertain_after,
+            "omitted_before": omitted_before, "omitted_after": omitted_after,
+        });
+    }
     if !before.network.absent() || !after.network.absent() {
         let endpoint_comparisons: Vec<_> = after
             .network
